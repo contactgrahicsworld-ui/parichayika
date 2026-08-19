@@ -112,6 +112,9 @@ function applyPostTransliterationFixes(text: string): string {
   fixed = fixed.replace(/अश्वनी/g, "अश्विनी");
   fixed = fixed.replace(/अश्विनि/g, "अश्विनी");
   fixed = fixed.replace(/साहूू/g, "साहू");
+  fixed = fixed.replace(/रइपुर/g, "रायपुर");
+  fixed = fixed.replace(/पिता नाम/g, "पिता का नाम");
+  fixed = fixed.replace(/माता नाम/g, "माता का नाम");
 
   // 2. Degrees & Educational acronyms cleanups
   const degreeRules: { pattern: RegExp; replacement: string }[] = [
@@ -198,18 +201,176 @@ function transliterationPostProcess(str: string): string {
   return applyPostTransliterationFixes(englishDigits);
 }
 
+// English-to-Hindi phrase dictionary (longest phrases first) for proper
+// translation of common phrases before phonetic transliteration of names.
+const HI_TRANSLATION_PHRASES: { pattern: RegExp; replacement: string }[] = [
+  { pattern: /what is your name/gi, replacement: "आपका नाम क्या है" },
+  { pattern: /what is your age/gi, replacement: "आपकी आयु क्या है" },
+  { pattern: /how are you/gi, replacement: "आप कैसे हैं" },
+  { pattern: /i am doing business/gi, replacement: "मैं व्यवसाय करता हूँ" },
+  { pattern: /i am working as/gi, replacement: "मैं कार्यरत हूँ" },
+  { pattern: /i am living in/gi, replacement: "मैं रहता हूँ" },
+  { pattern: /i live in/gi, replacement: "मैं रहता हूँ" },
+  { pattern: /i belong to/gi, replacement: "मैं हूँ" },
+  { pattern: /my name is/gi, replacement: "मेरा नाम" },
+  { pattern: /my father name is/gi, replacement: "मेरे पिता का नाम" },
+  { pattern: /my mother name is/gi, replacement: "मेरी माता का नाम" },
+  { pattern: /my family name is/gi, replacement: "मेरा पारिवारिक नाम" },
+  { pattern: /my father name/gi, replacement: "मेरे पिता का नाम" },
+  { pattern: /my mother name/gi, replacement: "मेरी माता का नाम" },
+  { pattern: /my self/gi, replacement: "मेरा परिचय" },
+  { pattern: /son of/gi, replacement: "पुत्र" },
+  { pattern: /daughter of/gi, replacement: "पुत्री" },
+  { pattern: /wife of/gi, replacement: "पत्नी" },
+  { pattern: /husband of/gi, replacement: "पति" },
+  { pattern: /business of/gi, replacement: "का व्यवसाय" },
+  { pattern: /i am married/gi, replacement: "मैं विवाहित हूँ" },
+  { pattern: /i am unmarried/gi, replacement: "मैं अविवाहित हूँ" },
+  { pattern: /years old/gi, replacement: "वर्ष" },
+  { pattern: /i am/gi, replacement: "मैं" },
+  { pattern: /i love you/gi, replacement: "मैं तुमसे प्यार करता हूँ" },
+  { pattern: /thank you/gi, replacement: "धन्यवाद" },
+  { pattern: /good morning/gi, replacement: "सुप्रभात" },
+  { pattern: /good evening/gi, replacement: "शुभ संध्या" },
+  { pattern: /good night/gi, replacement: "शुभ रात्रि" },
+  { pattern: /namaste/gi, replacement: "नमस्ते" },
+  { pattern: /hello/gi, replacement: "नमस्ते" },
+  { pattern: /please/gi, replacement: "कृपया" }
+];
+
+// English-to-Hindi common word dictionary for form-related vocabulary.
+const HI_TRANSLATION_WORDS: Record<string, string> = {
+  i: "मैं",
+  me: "मुझे",
+  you: "आप",
+  my: "मेरा",
+  mine: "मेरा",
+  your: "आपका",
+  he: "वह",
+  she: "वह",
+  his: "उनका",
+  her: "उनका",
+  we: "हम",
+  our: "हमारा",
+  us: "हमें",
+  they: "वे",
+  their: "उनका",
+  is: "है",
+  am: "हूँ",
+  are: "हैं",
+  was: "था",
+  were: "थे",
+  live: "रहता हूँ",
+  lives: "रहते हैं",
+  living: "रहता हुआ",
+  working: "कार्यरत",
+  work: "कार्य",
+  works: "कार्य",
+  doing: "कर रहा",
+  do: "करता",
+  does: "करता",
+  have: "है",
+  has: "है",
+  married: "विवाहित",
+  unmarried: "अविवाहित",
+  single: "अविवाहित",
+  love: "प्यार",
+  and: "और",
+  of: "का",
+  in: "में",
+  from: "से",
+  at: "पर",
+  with: "के साथ",
+  name: "नाम",
+  age: "आयु",
+  height: "लंबाई",
+  weight: "वजन",
+  colour: "रंग",
+  color: "रंग",
+  education: "शिक्षा",
+  qualification: "योग्यता",
+  profession: "व्यवसाय",
+  occupation: "व्यवसाय",
+  business: "व्यवसाय",
+  shop: "दुकान",
+  address: "पता",
+  city: "शहर",
+  town: "कस्बा",
+  district: "जिला",
+  village: "गाँव",
+  state: "राज्य",
+  country: "देश",
+  india: "भारत",
+  family: "परिवार",
+  father: "पिता",
+  mother: "माता",
+  brother: "भाई",
+  sister: "बहन",
+  son: "पुत्र",
+  daughter: "पुत्री",
+  wife: "पत्नी",
+  husband: "पति",
+  house: "घर",
+  home: "घर",
+  near: "पास",
+  road: "सड़क",
+  street: "गली",
+  lane: "गली",
+  colony: "कॉलोनी",
+  sector: "सेक्टर",
+  market: "बाजार",
+  mandi: "मंडी",
+  post: "डाकघर",
+  pincode: "पिनकोड",
+  school: "विद्यालय",
+  college: "महाविद्यालय",
+  god: "भगवान",
+  ji: "जी",
+  shree: "श्री",
+  yes: "हाँ",
+  no: "नहीं",
+  good: "अच्छा",
+  very: "बहुत",
+  welcome: "स्वागत",
+  the: "",
+  a: "",
+  an: "एक"
+};
+
+// Pre-translate common English phrases and words to Hindi before phonetic
+// transliteration, so proper translations are used instead of literal sounds.
+function preTranslateEnglishToHindi(text: string): string {
+  if (!text) return text;
+  let result = text;
+  // Phrase-level replacements (longest phrases first)
+  for (const phrase of HI_TRANSLATION_PHRASES) {
+    result = result.replace(phrase.pattern, phrase.replacement);
+  }
+  // Word-level replacements for remaining Latin words
+  result = result.replace(/[A-Za-z]+/g, (word) => {
+    const mapped = HI_TRANSLATION_WORDS[word.toLowerCase()];
+    return mapped !== undefined ? mapped : word;
+  });
+  // Collapse spaces left by removed articles
+  result = result.replace(/\s{2,}/g, " ");
+  return result.trim();
+}
+
 // 1. Google Cloud Translation Transliteration phonetic converter API
 app.post("/api/transliterate", async (req: any, res: any) => {
-  const { text } = req.body;
-  if (!text || typeof text !== "string") {
+  const { text: originalText } = req.body;
+  if (!originalText || typeof originalText !== "string") {
     return res.json({ result: "" });
   }
 
   // Check for numerals, system IDs, mobile numbers, dates or URLs - skip translation
-  const isExcluded = /^[0-9+\-:\s@.]+$|^(https?:\/\/|www\.)|^\d{10}$/.test(text.trim());
+  const isExcluded = /^[0-9+\-:\s@.]+$|^(https?:\/\/|www\.)|^\d{10}$/.test(originalText.trim());
   if (isExcluded) {
-    return res.json({ result: text, method: "skipped" });
+    return res.json({ result: originalText, method: "skipped" });
   }
+
+  // Pre-translate common English phrases/words to proper Hindi first
+  const text = preTranslateEnglishToHindi(originalText);
 
   const apiKey = process.env.GOOGLE_CLOUD_API_KEY;
 
@@ -1789,7 +1950,7 @@ async function startServer() {
 
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { middlewareMode: true, allowedHosts: ['.monkeycode-ai.live'] },
       appType: "spa"
     });
     app.use(vite.middlewares);
