@@ -461,6 +461,14 @@ function setupTablesAndSeeds(targetDb: any) {
     CREATE INDEX IF NOT EXISTS idx_ad_payment_status ON advertisements(payment_status);
     CREATE INDEX IF NOT EXISTS idx_order_id ON orders(order_id);
   `);
+
+  // Safe migrations for new production and design fields
+  try { targetDb.exec("ALTER TABLE order_items ADD COLUMN production_status TEXT DEFAULT 'Pending';"); } catch {}
+  try { targetDb.exec("ALTER TABLE order_items ADD COLUMN uploaded_jpg_url TEXT;"); } catch {}
+  try { targetDb.exec("ALTER TABLE order_items ADD COLUMN design_link TEXT;"); } catch {}
+  try { targetDb.exec("ALTER TABLE advertisements ADD COLUMN production_status TEXT DEFAULT 'Pending';"); } catch {}
+  try { targetDb.exec("ALTER TABLE advertisements ADD COLUMN uploaded_jpg_url TEXT;"); } catch {}
+  try { targetDb.exec("ALTER TABLE advertisements ADD COLUMN design_link TEXT;"); } catch {}
 }
 
 async function seedData() {

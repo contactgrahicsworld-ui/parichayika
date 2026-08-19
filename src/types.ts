@@ -73,6 +73,20 @@ export interface Publication {
   is_enabled: number;
 }
 
+export interface PublicationSelection {
+  id?: string;
+  district_id: string | number;
+  district_hi: string;
+  sangathan_id: string | number;
+  sangathan_hi: string;
+  magazine_id: string | number;
+  magazine_hi: string;
+  edition_id: string | number;
+  edition_hi: string;
+  price?: number | null;
+  priceAvailable?: boolean;
+}
+
 export interface MatrimonyFormState {
   [key: string]: any;
   name: string;
@@ -105,35 +119,36 @@ export interface MatrimonyFormState {
 
 export interface BusinessFormState {
   [key: string]: any;
-  businessName: string;
-  ownerName: string;
-  category: string;
-  businessDesc: string;
-  productsServices: string;
-  specialOffer: string;
-  keyFeatures: string;
-  mobile1: string;
-  mobile2: string;
-  whatsapp: string;
-  email: string;
-  businessAddress: string;
-  otherAddress: string;
-  logoUrl: string;
-  photoUrl: string;
-  readyAdUrl: string;
-  designLink?: string;
-  adMakerDesignJson?: any;
+  businessName?: string;
+  ownerName?: string;
+  category?: string;
+  businessDesc?: string;
+  productsServices?: string;
+  specialOffer?: string;
+  keyFeatures?: string;
+  mobile1?: string;
+  mobile2?: string;
+  whatsapp?: string;
+  email?: string;
+  businessAddress?: string;
+  otherAddress?: string;
+  logoUrl?: string;
+  photoUrl?: string;
+  readyAdUrl?: string;
+  designLink: string;
+  uploadedJpgUrl: string;
+  size_code: "business_full" | "business_half" | "business_quarter" | string;
+  size_hi?: string;
   // Selected Master Details
-  district_id: string;
-  sangathan_id: string;
-  magazine_id: string;
-  edition_id: string;
-  size_code: string;
+  district_id?: string;
+  sangathan_id?: string;
+  magazine_id?: string;
+  edition_id?: string;
   district_hi?: string;
   sangathan_hi?: string;
   magazine_hi?: string;
   edition_hi?: string;
-  size_hi?: string;
+  publications?: PublicationSelection[];
 }
 
 export interface CartItem {
@@ -152,6 +167,7 @@ export interface Order {
   payment_ref?: string;
   payment_date?: string;
   payment_screenshot?: string;
+  rejection_reason?: string;
   verified_by?: string;
   verification_time?: string;
   created_at: string;
@@ -171,6 +187,9 @@ export interface OrderItem {
   price: number;
   customer_name: string;
   customer_mobile: string;
+  production_status?: "Pending" | "Ready for Production" | "In Production" | "Published" | "Completed" | string;
+  uploaded_jpg_url?: string;
+  design_link?: string;
   matrimonyDetails?: MatrimonyFormState;
   businessDetails?: BusinessFormState;
 }
@@ -189,6 +208,9 @@ export interface Advertisement {
   customer_mobile1: string;
   price: number;
   payment_status: string;
+  production_status?: string;
+  uploaded_jpg_url?: string;
+  design_link?: string;
   created_at: string;
   matrimonyProfile?: any;
   businessProfile?: any;

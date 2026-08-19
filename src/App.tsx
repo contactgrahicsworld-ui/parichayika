@@ -98,13 +98,15 @@ export default function App() {
     editions: Edition[];
     sizes: AdvertisementSize[];
     publications: Publication[];
+    pricings: any[];
   }>({
     districts: [],
     sangathans: [],
     magazines: [],
     editions: [],
     sizes: [],
-    publications: []
+    publications: [],
+    pricings: []
   });
 
   const [userConfigs, setUserConfigs] = useState<any[]>([]);

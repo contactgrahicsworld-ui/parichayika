@@ -678,6 +678,104 @@ app.post("/api/cart/add", async (req: any, res: any) => {
   }
 });
 
+// Business Ad Multi-Publication Cart Add Endpoint
+app.post("/api/cart/add-business", async (req: any, res: any) => {
+  const { sessionId, sizeCode, designLink, uploadedJpgUrl, publications } = req.body;
+  if (!sessionId || !sizeCode || !designLink || !uploadedJpgUrl || !publications || !Array.isArray(publications) || publications.length === 0) {
+    return res.status(400).json({ error: "कृपया सभी आवश्यक विवरण (डिज़ाइन लिंक, CMYK JPG फ़ाइल और कम से कम एक प्रकाशन) दर्ज करें।" });
+  }
+
+  const validSizes = ["business_full", "business_half", "business_quarter"];
+  if (!validSizes.includes(sizeCode)) {
+    return res.status(400).json({ error: "अमान्य विज्ञापन आकार।" });
+  }
+
+  try {
+    const sizeRecord = await dbGet("SELECT * FROM advertisement_sizes WHERE code = ?", [sizeCode]);
+    const size_hi = sizeRecord?.name_hi || (
+      sizeCode === "business_full" ? "पूरा पृष्ठ (7.2 × 9.6 इंच)" :
+      sizeCode === "business_half" ? "आधा पृष्ठ (7.2 × 4.8 इंच)" :
+      "चौथाई पृष्ठ (3.6 × 4.8 इंच)"
+    );
+
+    const created_at = new Date().toISOString();
+    const addedItems = [];
+
+    for (let i = 0; i < publications.length; i++) {
+      const pub = publications[i];
+      const districtId = Number(pub.district_id);
+      const sangathanId = Number(pub.sangathan_id);
+      const magazineId = Number(pub.magazine_id);
+      const editionId = Number(pub.edition_id);
+
+      if (!districtId || !sangathanId || !magazineId || !editionId) {
+        return res.status(400).json({ error: "कृपया सभी प्रकाशन फ़ील्ड (जिला, संगठन, पत्रिका, संस्करण) चुनें।" });
+      }
+
+      // Check existence in DB
+      const district = await dbGet("SELECT * FROM districts WHERE id = ? AND is_enabled = 1", [districtId]);
+      const sangathan = await dbGet("SELECT * FROM sangathans WHERE id = ? AND district_id = ? AND is_enabled = 1", [sangathanId, districtId]);
+      const magazine = await dbGet("SELECT * FROM magazines WHERE id = ? AND is_enabled = 1", [magazineId]);
+      const edition = await dbGet("SELECT * FROM editions WHERE id = ? AND magazine_id = ? AND is_enabled = 1", [editionId, magazineId]);
+
+      if (!district || !sangathan || !magazine || !edition) {
+        return res.status(400).json({ error: "चयनित प्रकाशन संयोजन अमान्य या निष्क्रिय है।" });
+      }
+
+      // Server-side authoritative pricing lookup
+      const pricing = await dbGet(
+        "SELECT price FROM pricings WHERE district_id = ? AND sangathan_id = ? AND magazine_id = ? AND edition_id = ? AND adv_type_code = 'business' AND adv_size_code = ?",
+        [districtId, sangathanId, magazineId, editionId, sizeCode]
+      );
+
+      if (!pricing || pricing.price === undefined || pricing.price === null || pricing.price <= 0) {
+        return res.status(400).json({
+          error: `प्रकाशन '${district.name_hi} - ${sangathan.name_hi}' के लिए अभी दर निर्धारित नहीं है। कृपया दूसरा विकल्प चुनें।`
+        });
+      }
+
+      const verifiedPrice = Number(pricing.price);
+
+      // Auto-generate Ad Number for this item
+      const countRow = await dbGet("SELECT COUNT(*) as count FROM advertisements WHERE type_code = 'business'");
+      const nextSeq = String((countRow?.count || 0) + 1 + i).padStart(3, "0");
+      const adNumber = `BUS-${nextSeq} / ${magazine.name_hi}`;
+
+      const itemData = {
+        adNumber,
+        businessName: "व्यावसायिक विज्ञापन",
+        ownerName: "ग्राहक",
+        size_code: sizeCode,
+        size_hi,
+        designLink,
+        uploadedJpgUrl,
+        readyAdUrl: uploadedJpgUrl,
+        district_id: String(districtId),
+        sangathan_id: String(sangathanId),
+        magazine_id: String(magazineId),
+        edition_id: String(editionId),
+        district_hi: district.name_hi,
+        sangathan_hi: sangathan.name_hi,
+        magazine_hi: magazine.name_hi,
+        edition_hi: edition.name_hi,
+        publicationIndex: i + 1,
+        totalPublications: publications.length
+      };
+
+      const result = await dbRun(
+        "INSERT INTO cart_items (session_id, ad_type, data_json, price, created_at) VALUES (?, 'business', ?, ?, ?)",
+        [sessionId, JSON.stringify(itemData), verifiedPrice, created_at]
+      );
+
+      addedItems.push({ id: result.lastID, price: verifiedPrice, adNumber });
+    }
+
+    res.json({ success: true, count: addedItems.length, items: addedItems });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.delete("/api/cart/remove/:id", async (req: any, res: any) => {
   const { id } = req.params;
   try {
@@ -729,17 +827,19 @@ app.post("/api/order/submit", async (req: any, res: any) => {
       [orderId, total, created_at]
     );
 
-    // 4. Save order items mapping
+    // 4. Save order items mapping & persistent advertisement records
     for (const item of itemsWithParsedData) {
       const parsed = item.parsedData;
-      // Use the actual, final immutable adNumber pre-generated at preview/save time
       const finalAdNum = parsed.adNumber || `ADV-PENDING-${Date.now()}`;
+      const uploadedJpg = parsed.uploadedJpgUrl || parsed.photoUrl || parsed.readyAdUrl || null;
+      const designLink = parsed.designLink || null;
       
       await dbRun(
         `INSERT INTO order_items (
           order_id, ad_number, ad_type, district_hi, sangathan_hi, magazine_hi, edition_hi, size_hi, price,
-          customer_name, customer_mobile, matrimony_details_json, business_details_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          customer_name, customer_mobile, production_status, uploaded_jpg_url, design_link,
+          matrimony_details_json, business_details_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending', ?, ?, ?, ?)`,
         [
           orderId,
           finalAdNum,
@@ -752,10 +852,74 @@ app.post("/api/order/submit", async (req: any, res: any) => {
           item.price,
           customerName,
           customerMobile,
+          uploadedJpg,
+          designLink,
           item.ad_type === "matrimony" ? item.data_json : null,
           item.ad_type === "business" ? item.data_json : null
         ]
       );
+
+      // Create or update record in advertisements table for Print Production
+      try {
+        const existingAd = await dbGet("SELECT id FROM advertisements WHERE ad_number = ?", [finalAdNum]);
+        let adDbId: number;
+        if (existingAd) {
+          adDbId = existingAd.id;
+          await dbRun(`
+            UPDATE advertisements SET
+              customer_name = ?, customer_mobile1 = ?, price = ?, district_hi = ?, sangathan_hi = ?,
+              magazine_hi = ?, edition_hi = ?, size_code = ?, size_hi = ?, production_status = 'Pending',
+              uploaded_jpg_url = ?, design_link = ?
+            WHERE id = ?
+          `, [
+            customerName, customerMobile, item.price,
+            parsed.district_hi || "रायपुर", parsed.sangathan_hi || "रायपुर साहू संगठन",
+            parsed.magazine_hi || "परिचायिका", parsed.edition_hi || "संस्करण 2026",
+            parsed.size_code || "business_full",
+            parsed.size_hi || "पूरा पृष्ठ (7.2 × 9.6 इंच)",
+            uploadedJpg, designLink, adDbId
+          ]);
+        } else {
+          const adRes = await dbRun(`
+            INSERT INTO advertisements (
+              ad_number, type_code, district_hi, sangathan_hi, magazine_hi, edition_hi, size_code, size_hi,
+              customer_name, customer_mobile1, price, payment_status, production_status, uploaded_jpg_url, design_link, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', 'Pending', ?, ?, ?)
+          `, [
+            finalAdNum, item.ad_type,
+            parsed.district_hi || "रायपुर", parsed.sangathan_hi || "रायपुर साहू संगठन",
+            parsed.magazine_hi || "परिचायिका", parsed.edition_hi || "संस्करण 2026",
+            parsed.size_code || "business_full",
+            parsed.size_hi || "पूरा पृष्ठ (7.2 × 9.6 इंच)",
+            customerName, customerMobile, item.price,
+            uploadedJpg, designLink, created_at
+          ]);
+          adDbId = adRes.lastID;
+        }
+
+        if (item.ad_type === "business") {
+          await dbRun(`
+            INSERT INTO business_advertisements (
+              ad_id, business_name, owner_name, ready_ad_url, photo_url, mobile1
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(ad_id) DO UPDATE SET
+              business_name = excluded.business_name,
+              owner_name = excluded.owner_name,
+              ready_ad_url = excluded.ready_ad_url,
+              photo_url = excluded.photo_url,
+              mobile1 = excluded.mobile1
+          `, [
+            adDbId,
+            parsed.businessName || "व्यावसायिक विज्ञापन",
+            parsed.ownerName || customerName,
+            uploadedJpg || designLink || "",
+            uploadedJpg || "",
+            customerMobile
+          ]);
+        }
+      } catch (errAd) {
+        console.error("Ad record sync error during checkout:", errAd);
+      }
     }
 
     // Clear user's cart
@@ -1343,6 +1507,8 @@ app.post("/api/admin/masters/:entity", authenticateAdmin, async (req: any, res: 
       await dbRun("INSERT INTO districts (name_en, name_hi, is_enabled) VALUES (?, ?, 1)", [data.name_en, data.name_hi]);
     } else if (entity === "sangathans") {
       await dbRun("INSERT INTO sangathans (district_id, name_en, name_hi, is_enabled) VALUES (?, ?, ?, 1)", [data.district_id, data.name_en, data.name_hi]);
+    } else if (entity === "magazines") {
+      await dbRun("INSERT INTO magazines (name_en, name_hi, is_enabled) VALUES (?, ?, 1)", [data.name_en, data.name_hi]);
     } else if (entity === "editions") {
       await dbRun("INSERT INTO editions (magazine_id, name_en, name_hi, is_enabled) VALUES (?, ?, ?, 1)", [data.magazine_id, data.name_en, data.name_hi]);
     } else if (entity === "sizes") {
@@ -1353,7 +1519,7 @@ app.post("/api/admin/masters/:entity", authenticateAdmin, async (req: any, res: 
     } else if (entity === "pricings") {
       await dbRun(
         "INSERT INTO pricings (district_id, sangathan_id, magazine_id, edition_id, adv_type_code, adv_size_code, price) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        [data.district_id, data.sangathan_id, data.magazine_id, data.edition_id, data.adv_type_code, data.adv_size_code, data.price]
+        [data.district_id, data.sangathan_id, data.magazine_id, data.edition_id, data.adv_type_code, data.adv_size_code, Number(data.price)]
       );
     } else if (entity === "publications") {
       await dbRun(
@@ -1364,6 +1530,73 @@ app.post("/api/admin/masters/:entity", authenticateAdmin, async (req: any, res: 
       return res.status(400).json({ error: "Invalid master entity" });
     }
     res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put("/api/admin/masters/:entity/:id", authenticateAdmin, async (req: any, res: any) => {
+  const { entity, id } = req.params;
+  const data = req.body;
+  try {
+    if (entity === "districts") {
+      await dbRun("UPDATE districts SET name_en = ?, name_hi = ?, is_enabled = ? WHERE id = ?", [data.name_en, data.name_hi, data.is_enabled !== undefined ? (data.is_enabled ? 1 : 0) : 1, id]);
+    } else if (entity === "sangathans") {
+      await dbRun("UPDATE sangathans SET district_id = ?, name_en = ?, name_hi = ?, is_enabled = ? WHERE id = ?", [data.district_id, data.name_en, data.name_hi, data.is_enabled !== undefined ? (data.is_enabled ? 1 : 0) : 1, id]);
+    } else if (entity === "magazines") {
+      await dbRun("UPDATE magazines SET name_en = ?, name_hi = ?, is_enabled = ? WHERE id = ?", [data.name_en, data.name_hi, data.is_enabled !== undefined ? (data.is_enabled ? 1 : 0) : 1, id]);
+    } else if (entity === "editions") {
+      await dbRun("UPDATE editions SET magazine_id = ?, name_en = ?, name_hi = ?, is_enabled = ? WHERE id = ?", [data.magazine_id, data.name_en, data.name_hi, data.is_enabled !== undefined ? (data.is_enabled ? 1 : 0) : 1, id]);
+    } else if (entity === "publications") {
+      await dbRun("UPDATE publications SET district_id = ?, sangathan_id = ?, magazine_id = ?, edition_id = ?, is_enabled = ? WHERE id = ?", [data.district_id, data.sangathan_id, data.magazine_id, data.edition_id, data.is_enabled !== undefined ? (data.is_enabled ? 1 : 0) : 1, id]);
+    } else if (entity === "pricings") {
+      await dbRun("UPDATE pricings SET district_id = ?, sangathan_id = ?, magazine_id = ?, edition_id = ?, adv_type_code = ?, adv_size_code = ?, price = ? WHERE id = ?", [data.district_id, data.sangathan_id, data.magazine_id, data.edition_id, data.adv_type_code, data.adv_size_code, Number(data.price), id]);
+    } else {
+      return res.status(400).json({ error: "Invalid master entity" });
+    }
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/api/admin/masters/:entity/:id", authenticateAdmin, async (req: any, res: any) => {
+  const { entity, id } = req.params;
+  try {
+    const tableMap: { [key: string]: string } = {
+      districts: "districts",
+      sangathans: "sangathans",
+      magazines: "magazines",
+      editions: "editions",
+      publications: "publications",
+      pricings: "pricings"
+    };
+    const tbl = tableMap[entity];
+    if (!tbl) return res.status(400).json({ error: "Invalid master entity" });
+    await dbRun(`DELETE FROM ${tbl} WHERE id = ?`, [id]);
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 11.1 Update Publication Production Status
+app.put("/api/admin/order-items/:id/production-status", authenticateAdmin, async (req: any, res: any) => {
+  const { id } = req.params;
+  const { production_status } = req.body;
+  const allowed = ["Pending", "Ready for Production", "In Production", "Published", "Completed"];
+  if (!production_status || !allowed.includes(production_status)) {
+    return res.status(400).json({ error: "Invalid production status value" });
+  }
+  try {
+    const item = await dbGet("SELECT * FROM order_items WHERE id = ?", [id]);
+    if (!item) return res.status(404).json({ error: "Order item not found" });
+
+    await dbRun("UPDATE order_items SET production_status = ? WHERE id = ?", [production_status, id]);
+    if (item.ad_number) {
+      await dbRun("UPDATE advertisements SET production_status = ? WHERE ad_number = ?", [production_status, item.ad_number]);
+    }
+    res.json({ success: true, message: "Production status updated" });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

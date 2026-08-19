@@ -800,6 +800,45 @@ export default function AdminPanel() {
     }
   };
 
+  const handleUpdateItemProductionStatus = async (itemId: number, newStatus: string) => {
+    try {
+      const res = await fetch(`/api/admin/order-items/${itemId}/production-status`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ production_status: newStatus })
+      });
+      if (res.ok) {
+        setSelectedOrder((prev) => {
+          if (!prev) return null;
+          return {
+            ...prev,
+            items: prev.items?.map((it) => it.id === itemId ? { ...it, production_status: newStatus } : it)
+          };
+        });
+        setOrders((prev) =>
+          prev.map((ord) => {
+            if (ord.order_id === selectedOrder?.order_id) {
+              return {
+                ...ord,
+                items: ord.items?.map((it) => it.id === itemId ? { ...it, production_status: newStatus } : it)
+              };
+            }
+            return ord;
+          })
+        );
+        fetchDashboardData();
+      } else {
+        const err = await res.json();
+        alert(`त्रुटि: ${err.error}`);
+      }
+    } catch (e) {
+      alert("स्थिति अपडेट करने में असमर्थ");
+    }
+  };
+
   const handlePasswordChange = async (e: React.FormEvent) => {
     e.preventDefault();
     setPasswordError("");
@@ -2486,39 +2525,95 @@ export default function AdminPanel() {
 
                     {it.ad_type === "business" && (
                       <div className="space-y-3 text-xs text-stone-700">
-                        <div className="grid grid-cols-2 gap-2 bg-white p-3 rounded-lg border border-stone-200">
-                          <p><span className="font-bold text-stone-900">विज्ञापन आकार:</span> <span className="font-bold text-emerald-800">{it.size_hi || "व्यावसायिक विज्ञापन"}</span></p>
-                          <p><span className="font-bold text-stone-900">दर (Price):</span> <span className="font-bold text-stone-900">₹{it.price}</span></p>
-                          {it.businessDetails?.businessName && it.businessDetails.businessName !== "व्यावसायिक विज्ञापन" && (
-                            <p><span className="font-bold text-stone-900">व्यवसाय नाम:</span> {it.businessDetails.businessName}</p>
-                          )}
-                          {it.businessDetails?.ownerName && it.businessDetails.ownerName !== "व्यावसायिक विज्ञापन" && (
-                            <p><span className="font-bold text-stone-900">संचालक:</span> {it.businessDetails.ownerName}</p>
-                          )}
+                        {/* Publication & Pricing Info */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-white p-3 rounded-lg border border-stone-200">
+                          <p><span className="font-bold text-stone-900">विज्ञापन आकार:</span> <span className="font-bold text-orange-700">{it.size_hi || "पूरा पृष्ठ (7.2 × 9.6 इंच)"}</span></p>
+                          <p><span className="font-bold text-stone-900">प्रकाशन दर (Price):</span> <span className="font-bold text-emerald-700">₹{it.price}</span></p>
+                          <p className="sm:col-span-2"><span className="font-bold text-stone-900">प्रकाशन संयोजन:</span> {it.district_hi} &bull; {it.sangathan_hi} &bull; {it.magazine_hi} ({it.edition_hi})</p>
                         </div>
 
-                        {/* Direct Customer Design Link Preview & Access */}
-                        {(it.businessDetails?.readyAdUrl || it.businessDetails?.designLink) && (
-                          <div className="bg-emerald-50/80 border border-emerald-300 rounded-xl p-3.5 space-y-2">
+                        {/* Customer Submitted Design Link */}
+                        {(it.design_link || it.businessDetails?.designLink || it.businessDetails?.readyAdUrl) && (
+                          <div className="bg-orange-50 border border-orange-200 rounded-xl p-3.5 space-y-2">
                             <div className="flex items-center justify-between flex-wrap gap-2">
-                              <span className="font-bold text-emerald-950 text-xs flex items-center gap-1.5">
-                                <ExternalLink className="w-4 h-4 text-emerald-700" />
-                                ग्राहक द्वारा सबमिट किया गया विज्ञापन डिज़ाइन लिंक (Design Link)
+                              <span className="font-bold text-orange-950 text-xs flex items-center gap-1.5">
+                                <ExternalLink className="w-4 h-4 text-orange-700" />
+                                ChatGPT / ऑनलाइन डिज़ाइन लिंक (Design Link)
                               </span>
                               <a
-                                href={it.businessDetails.readyAdUrl || it.businessDetails.designLink}
+                                href={it.design_link || it.businessDetails?.designLink || it.businessDetails?.readyAdUrl}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs px-3 py-1.5 rounded-lg shadow-xs transition-all flex items-center gap-1 cursor-pointer"
+                                className="bg-orange-600 hover:bg-orange-700 text-white font-bold text-xs px-3 py-1.5 rounded-lg shadow-xs transition-all flex items-center gap-1 cursor-pointer"
                               >
                                 लिंक खोलें ↗
                               </a>
                             </div>
-                            <div className="bg-white p-2 rounded-lg border border-emerald-200 text-[11px] font-mono text-stone-800 break-all select-all">
-                              {it.businessDetails.readyAdUrl || it.businessDetails.designLink}
+                            <div className="bg-white p-2 rounded-lg border border-orange-200 text-[11px] font-mono text-stone-800 break-all select-all">
+                              {it.design_link || it.businessDetails?.designLink || it.businessDetails?.readyAdUrl}
                             </div>
                           </div>
                         )}
+
+                        {/* Customer Uploaded Final JPG */}
+                        {(it.uploaded_jpg_url || it.businessDetails?.uploadedJpgUrl || it.businessDetails?.photoUrl || it.businessDetails?.readyAdUrl) && (
+                          <div className="bg-sky-50 border border-sky-200 rounded-xl p-3.5 space-y-2">
+                            <div className="flex items-center justify-between flex-wrap gap-2">
+                              <span className="font-bold text-sky-950 text-xs flex items-center gap-1.5">
+                                <Eye className="w-4 h-4 text-sky-700" />
+                                ग्राहक द्वारा अपलोड फाइनल CMYK JPG फ़ाइल (Print Ready)
+                              </span>
+                              <a
+                                href={it.uploaded_jpg_url || it.businessDetails?.uploadedJpgUrl || it.businessDetails?.photoUrl || it.businessDetails?.readyAdUrl}
+                                target="_blank"
+                                download={`Ad_${it.ad_number}.jpg`}
+                                rel="noreferrer"
+                                className="bg-sky-700 hover:bg-sky-800 text-white font-bold text-xs px-3 py-1.5 rounded-lg shadow-xs transition-all flex items-center gap-1 cursor-pointer"
+                              >
+                                डाउनलोड / फुल व्यू ⬇
+                              </a>
+                            </div>
+                            <div className="pt-1">
+                              <img
+                                src={it.uploaded_jpg_url || it.businessDetails?.uploadedJpgUrl || it.businessDetails?.photoUrl || it.businessDetails?.readyAdUrl}
+                                alt="Final Ad"
+                                className="max-h-48 rounded-lg border border-sky-200 bg-white object-contain p-1"
+                                referrerPolicy="no-referrer"
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Production Status Tracker per Item */}
+                        <div className="bg-stone-100 p-3 rounded-lg border border-stone-200 flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-bold text-stone-800 text-xs">
+                            उत्पादन स्थिति (Production Status):
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <select
+                              value={it.production_status || "Pending"}
+                              onChange={(e) => handleUpdateItemProductionStatus(it.id, e.target.value)}
+                              className="text-xs font-bold px-2.5 py-1.5 rounded-lg border border-stone-300 bg-white text-stone-800 shadow-xs focus:ring-2 focus:ring-orange-500"
+                            >
+                              <option value="Pending">लंबित (Pending)</option>
+                              <option value="Ready for Production">उत्पादन हेतु तैयार (Ready for Production)</option>
+                              <option value="In Production">उत्पादन में (In Production)</option>
+                              <option value="Published">मुद्रित / प्रकाशित (Published)</option>
+                              <option value="Completed">पूर्ण (Completed)</option>
+                            </select>
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              it.production_status === "Published" || it.production_status === "Completed"
+                                ? "bg-emerald-100 text-emerald-800"
+                                : it.production_status === "In Production"
+                                ? "bg-sky-100 text-sky-800"
+                                : it.production_status === "Ready for Production"
+                                ? "bg-purple-100 text-purple-800"
+                                : "bg-amber-100 text-amber-800"
+                            }`}>
+                              {it.production_status || "Pending"}
+                            </span>
+                          </div>
+                        </div>
                       </div>
                     )}
                   </div>
