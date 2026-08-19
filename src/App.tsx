@@ -33,10 +33,14 @@ import {
   Camera,
   AlertCircle,
   Info,
-  X
+  X,
+  Copy,
+  Check,
+  ExternalLink,
+  Layers,
+  ArrowRight
 } from "lucide-react";
 import TransliteratedInput from "./components/TransliteratedInput";
-import AdMakerPanel from "./components/AdMakerPanel";
 import PaymentGatewayModal from "./components/PaymentGatewayModal";
 import InvoicePDF from "./components/InvoicePDF";
 import AdminPanel from "./components/AdminPanel";
@@ -200,6 +204,155 @@ export default function App() {
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
   const showToast = (message: string, type: "success" | "error" | "info" = "info") => {
     setToast({ message, type });
+  };
+
+  // Business Ad Workflow States (ChatGPT Workflow)
+  const [businessLinks, setBusinessLinks] = useState({
+    business_full: "",
+    business_half: "",
+    business_quarter: ""
+  });
+  const [copiedPromptKey, setCopiedPromptKey] = useState<string | null>(null);
+  const [isSubmittingBusiness, setIsSubmittingBusiness] = useState(false);
+
+  const BUSINESS_PROMPTS = {
+    business_full: `Design a high-impact, professional Full Page Magazine Advertisement (Print Ready).
+Dimensions: 7.2 inches width x 9.6 inches height (Aspect ratio ~3:4, High Resolution 300 DPI).
+Include:
+- Business Name & Slogan / Tagline
+- Key Products & Services (with attractive imagery/vectors)
+- Special Festival Offer or Discount Badge (e.g. 10% Off)
+- Showroom Address & Location Landmark
+- Contact Numbers & WhatsApp
+Style: Elegant, modern, high-contrast typography, premium magazine color aesthetic.`,
+
+    business_half: `Design a professional Half Page Horizontal Magazine Advertisement (Print Ready).
+Dimensions: 7.2 inches width x 4.8 inches height (Aspect ratio 3:2, High Resolution 300 DPI).
+Include:
+- Prominent Business Name & Logo placement
+- Core Offerings & Highlights
+- Attractive Festive / Seasonal Offer
+- Contact Mobile Numbers, WhatsApp, and Address
+Style: Balanced horizontal layout, eye-catching banners, clean and legible text for publication.`,
+
+    business_quarter: `Design a crisp, neat Quarter Page Vertical Magazine Advertisement (Print Ready).
+Dimensions: 3.6 inches width x 4.8 inches height (Aspect ratio 3:4, High Resolution 300 DPI).
+Include:
+- Bold Business Name & Sector
+- Top 3 Key Services / Products
+- Special Discount / Offer note
+- Direct Contact Phone Numbers & Address
+Style: Compact, crisp typography, easily readable in compact print space.`
+  };
+
+  const handleCopyPrompt = async (key: "business_full" | "business_half" | "business_quarter") => {
+    const promptText = BUSINESS_PROMPTS[key];
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(promptText);
+      } else {
+        const ta = document.createElement("textarea");
+        ta.value = promptText;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
+      setCopiedPromptKey(key);
+      showToast("✓ ChatGPT प्रॉम्ट क्लिपबोर्ड में कॉपी हो गया!", "success");
+      setTimeout(() => {
+        setCopiedPromptKey((curr) => (curr === key ? null : curr));
+      }, 3000);
+    } catch (err) {
+      showToast("कॉपी करने में समस्या आई, कृपया मैन्युअली कॉपी करें।", "error");
+    }
+  };
+
+  const handleAddBusinessAdToCart = async (sizeCode: "business_full" | "business_half" | "business_quarter") => {
+    const link = businessLinks[sizeCode]?.trim();
+    if (!link) {
+      showToast("कृपया अपना डिज़ाइन लिंक (Design URL) दर्ज करें।", "error");
+      return;
+    }
+
+    const sz = masters.sizes.find((s) => s.code === sizeCode);
+    const sizeHi = sz ? sz.name_hi : (
+      sizeCode === "business_full" ? "पूरा पृष्ठ (7.2 × 9.6 इंच)" :
+      sizeCode === "business_half" ? "आधा पृष्ठ (7.2 × 4.8 इंच)" : "चौथाई पृष्ठ (3.6 × 4.8 इंच)"
+    );
+
+    setIsSubmittingBusiness(true);
+    try {
+      // 1. Save business ad record in database
+      const saveRes = await fetch("/api/advertisements/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          typeCode: "business",
+          sizeCode,
+          customerName: "व्यवसायिक विज्ञापन",
+          customerMobile: "9999999999",
+          formData: {
+            readyAdUrl: link,
+            designLink: link,
+            businessName: "व्यवसायिक विज्ञापन",
+            size_code: sizeCode,
+            size_hi: sizeHi,
+            district_hi: "आवंटन प्रतीक्षित",
+            sangathan_hi: "आवंटन प्रतीक्षित",
+            magazine_hi: "परिचायिका",
+            edition_hi: "संस्करण 2026"
+          }
+        })
+      });
+
+      if (!saveRes.ok) {
+        const errData = await saveRes.json();
+        showToast("त्रुटि: " + (errData.error || "सुरक्षित करने में असमर्थ"), "error");
+        setIsSubmittingBusiness(false);
+        return;
+      }
+
+      const savedData = await saveRes.json();
+
+      // 2. Add to cart
+      const cartRes = await fetch("/api/cart/add", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId,
+          adType: "business",
+          data: {
+            adId: savedData.id,
+            adNumber: savedData.adNumber,
+            readyAdUrl: link,
+            designLink: link,
+            businessName: "व्यवसायिक विज्ञापन",
+            size_code: sizeCode,
+            size_hi: sizeHi,
+            district_hi: "आवंटन प्रतीक्षित",
+            sangathan_hi: "आवंटन प्रतीक्षित",
+            magazine_hi: "परिचायिका",
+            edition_hi: "संस्करण 2026"
+          },
+          price: savedData.price
+        })
+      });
+
+      if (cartRes.ok) {
+        await fetchCart();
+        showToast("सफलता: व्यवसाय विज्ञापन कार्ट में जोड़ दिया गया है!", "success");
+        setBusinessLinks((prev) => ({ ...prev, [sizeCode]: "" }));
+        setScreen("cart");
+      } else {
+        const err = await cartRes.json();
+        showToast("त्रुटि: " + (err.error || "कार्ट में जोड़ने में समस्या"), "error");
+      }
+    } catch (err: any) {
+      showToast("नेटवर्क त्रुटि: " + err.message, "error");
+    } finally {
+      setIsSubmittingBusiness(false);
+    }
   };
 
   useEffect(() => {
@@ -903,151 +1056,6 @@ export default function App() {
     }
   };
 
-  // Business Form: Validate Details and Save directly to DB -> Proceed to Step 3 (Visual Designer)
-  const handleBusinessSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    // Check required business fields
-    if (!businessForm.businessName?.trim()) {
-      showToast("कृपया व्यवसाय/संस्था का नाम अवश्य भरें।", "error");
-      return;
-    }
-    if (!businessForm.ownerName?.trim()) {
-      showToast("कृपया मालिक/संचालक का नाम अवश्य भरें।", "error");
-      return;
-    }
-    if (!businessForm.mobile1?.trim()) {
-      showToast("कृपया प्राथमिक मोबाइल नंबर अवश्य भरें।", "error");
-      return;
-    }
-    if (!validateMobile(businessForm.mobile1)) {
-      showToast("प्राथमिक मोबाइल नंबर (Mobile 1) ठीक 10 अंकों का होना आवश्यक है।", "error");
-      return;
-    }
-    if (businessForm.mobile2 && !validateMobile(businessForm.mobile2)) {
-      showToast("द्वितीयक मोबाइल नंबर (Mobile 2) ठीक 10 अंकों का होना आवश्यक है।", "error");
-      return;
-    }
-    if (businessForm.whatsapp && !validateMobile(businessForm.whatsapp)) {
-      showToast("व्हाट्सएप नंबर ठीक 10 अंकों का होना आवश्यक है।", "error");
-      return;
-    }
-    if (!businessForm.businessAddress?.trim()) {
-      showToast("कृपया व्यवसाय पता अवश्य भरें।", "error");
-      return;
-    }
-    if (!selectedSizeCode) {
-      showToast("कृपया विज्ञापन आकार अवश्य चुनें।", "error");
-      return;
-    }
-    if (!businessForm.district_hi?.trim() || !businessForm.sangathan_hi?.trim()) {
-      showToast("कृपया जिला और साहू संगठन अवश्य भरें।", "error");
-      return;
-    }
-
-    const sz = masters.sizes.find((s) => s.code === selectedSizeCode);
-
-    const payload = {
-      adId: savedAdId, // can be null or a pre-existing ID for edit
-      typeCode: "business",
-      publicationId: selectedPubId || "CUSTOM",
-      sizeCode: selectedSizeCode,
-      customerName: businessForm.businessName,
-      customerMobile: businessForm.mobile1,
-      formData: {
-        ...businessForm,
-        district_hi: businessForm.district_hi,
-        sangathan_hi: businessForm.sangathan_hi,
-        magazine_hi: businessForm.magazine_hi || "परिचायिका",
-        edition_hi: businessForm.edition_hi || "संस्करण 2026",
-        size_code: selectedSizeCode,
-        size_hi: sz ? sz.name_hi : "व्यावसायिक आकार"
-      }
-    };
-
-    try {
-      const res = await fetch("/api/advertisements/save", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setSavedAdId(data.id);
-        setSavedAdNumber(data.adNumber);
-        setSavedPrice(data.price);
-        setBusinessForm((prev) => ({
-          ...prev,
-          district_hi: businessForm.district_hi,
-          sangathan_hi: businessForm.sangathan_hi,
-          magazine_hi: businessForm.magazine_hi || "परिचायिका",
-          edition_hi: businessForm.edition_hi || "संस्करण 2026",
-          size_code: selectedSizeCode,
-          size_hi: sz ? sz.name_hi : "व्यावसायिक आकार"
-        }));
-        showToast("व्यापार विवरण सुरक्षित हो गया! AI एड मेकर में जारी रखें।", "success");
-        setBusinessStep(3); // Go directly to Visual Designer (Ad Maker)
-      } else {
-        const err = await res.json();
-        showToast("त्रुटि: " + (err.error || "सुरक्षित करने में विफल।"), "error");
-      }
-    } catch (err) {
-      console.error("Save failed:", err);
-      showToast("नेटवर्क त्रुटि: विज्ञापन सुरक्षित करने में असमर्थ", "error");
-    }
-  };
-
-  // Business Form Step 3: Receive approved layout design configuration from AI Ad Maker -> Add to Cart
-  const handleApproveAdMakerDesign = async (approvedLayout: any, dimensions?: any, readyAdUrl?: string) => {
-    if (!savedAdId || !savedAdNumber) {
-      showToast("सुरक्षित विज्ञापन आईडी या नंबर अनुपलब्ध है।", "error");
-      return;
-    }
-
-    const updatedForm = { 
-      ...businessForm, 
-      adMakerDesignJson: approvedLayout,
-      customDimensions: dimensions,
-      readyAdUrl: readyAdUrl || businessForm.readyAdUrl,
-      adId: savedAdId,
-      adNumber: savedAdNumber
-    };
-    setBusinessForm(updatedForm);
-
-    try {
-      const res = await fetch("/api/cart/add", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId,
-          adType: "business",
-          data: updatedForm,
-          price: savedPrice
-        })
-      });
-
-      if (res.ok) {
-        showToast("सफलता: व्यवसाय विज्ञापन को डिज़ाइन के साथ कार्ट में जोड़ दिया गया है।", "success");
-        // Reset form states completely
-        setBusinessForm({
-          businessName: "", ownerName: "", category: "", businessDesc: "", productsServices: "",
-          specialOffer: "", keyFeatures: "", mobile1: "", mobile2: "", whatsapp: "", email: "",
-          businessAddress: "", otherAddress: "", logoUrl: "", photoUrl: "", readyAdUrl: "",
-          district_id: "", sangathan_id: "", magazine_id: "", edition_id: "", size_code: ""
-        });
-        setSelectedPubId("");
-        setSelectedSizeCode("");
-        setSavedAdId(null);
-        setSavedAdNumber("");
-        setBusinessStep(1);
-        setScreen("cart");
-      }
-    } catch (err) {
-      console.error("Business custom ad cart failed:", err);
-      showToast("कार्ट में जोड़ने में समस्या आई", "error");
-    }
-  };
-
   // Remove from Shopping Cart API Call
   const handleRemoveCartItem = async (itemId: number) => {
     try {
@@ -1101,37 +1109,12 @@ export default function App() {
           setMatrimonyStep(1);
           setScreen("matrimony_form");
         } else {
-          setBusinessForm({
-            businessName: item.data.businessName || "",
-            ownerName: item.data.ownerName || "",
-            category: item.data.category || "",
-            businessDesc: item.data.businessDesc || "",
-            productsServices: item.data.productsServices || "",
-            specialOffer: item.data.specialOffer || "",
-            keyFeatures: item.data.keyFeatures || "",
-            mobile1: item.data.mobile1 || "",
-            mobile2: item.data.mobile2 || "",
-            whatsapp: item.data.whatsapp || "",
-            email: item.data.email || "",
-            businessAddress: item.data.businessAddress || "",
-            otherAddress: item.data.otherAddress || "",
-            logoUrl: item.data.logoUrl || "",
-            photoUrl: item.data.photoUrl || "",
-            readyAdUrl: item.data.readyAdUrl || "",
-            district_id: item.data.district_id || "",
-            sangathan_id: item.data.sangathan_id || "",
-            magazine_id: item.data.magazine_id || "",
-            edition_id: item.data.edition_id || "",
-            size_code: item.data.size_code || item.data.sizeCode || "",
-            district_hi: item.data.district_hi || "",
-            sangathan_hi: item.data.sangathan_hi || "",
-            magazine_hi: item.data.magazine_hi || "परिचायिका",
-            edition_hi: item.data.edition_hi || "संस्करण 2026",
-            size_hi: item.data.size_hi || "व्यावसायिक आकार"
-          });
-          setSelectedPubId(item.data.publication_id || item.data.publicationId || "");
-          setSelectedSizeCode(item.data.size_code || item.data.sizeCode || "");
-          setBusinessStep(1);
+          const code = (item.data.size_code || item.data.sizeCode || "business_full") as "business_full" | "business_half" | "business_quarter";
+          const link = item.data.readyAdUrl || item.data.designLink || "";
+          setBusinessLinks((prev) => ({
+            ...prev,
+            [code]: link
+          }));
           setScreen("business_form");
         }
         
@@ -2407,672 +2390,409 @@ export default function App() {
           </div>
         )}
 
-        {/* BUSINESS ADVERTISEMENT ENTRY FORM */}
+        {/* BUSINESS ADVERTISEMENT ENTRY - 3-SECTION CHATGPT WORKFLOW */}
         {screen === "business_form" && (
-          <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-stone-200 shadow-xs">
+          <div className="space-y-8 max-w-5xl mx-auto">
+            {/* Navigation & Header */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-white p-4 sm:p-5 rounded-2xl border border-stone-200 shadow-xs">
               <button
-                onClick={() => {
-                  if (businessStep === 3) {
-                    setBusinessStep(1);
-                  } else {
-                    setScreen("home");
-                  }
-                }}
-                className="flex items-center gap-1.5 text-xs font-bold text-stone-600 hover:text-stone-900 bg-stone-100 hover:bg-stone-200 px-3.5 py-2 rounded-xl shrink-0 transition-all cursor-pointer"
+                onClick={() => setScreen("home")}
+                className="flex items-center gap-1.5 text-xs font-bold text-stone-600 hover:text-stone-900 bg-stone-100 hover:bg-stone-200 px-4 py-2.5 rounded-xl shrink-0 transition-all cursor-pointer"
               >
                 <ArrowLeft className="w-4 h-4 text-stone-500" />
-                {businessStep === 3 ? "विवरण संपादित करें" : "वापस होमपेज"}
+                वापस होमपेज
               </button>
 
-              {/* Responsive Step Progress Wizard */}
-              <div className="flex items-center gap-2 sm:gap-4 w-full sm:w-auto justify-between sm:justify-end">
-                <div className="flex items-center gap-1.5">
-                  <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
-                    businessStep === 1 ? "bg-emerald-600 text-white" : "bg-emerald-600 text-white"
-                  }`}>
-                    {businessStep > 1 ? "✓" : "1"}
-                  </span>
-                  <span className={`text-xs font-bold ${businessStep === 1 ? "text-stone-900" : "text-stone-500"}`}>
-                    व्यापार विवरण
-                  </span>
+              <div className="flex items-center gap-2">
+                <span className="bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                  ChatGPT विज्ञापन मॉड्यूल
+                </span>
+              </div>
+            </div>
+
+            {/* Introductory Banner & 3-Step Guide */}
+            <div className="bg-gradient-to-br from-emerald-800 via-teal-800 to-slate-900 text-white rounded-3xl p-6 sm:p-8 shadow-xl relative overflow-hidden">
+              <div className="relative z-10 max-w-3xl space-y-4">
+                <div className="inline-flex items-center gap-2 bg-emerald-500/20 text-emerald-200 px-3 py-1 rounded-full text-xs font-bold border border-emerald-400/30 backdrop-blur-xs">
+                  <Building className="w-3.5 h-3.5" />
+                  व्यावसायिक पत्रिका विज्ञापन (Business Advertisements)
                 </div>
-                <div className="w-6 sm:w-10 h-0.5 bg-stone-200"></div>
-                <div className="flex items-center gap-1.5">
-                  <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
-                    businessStep === 3 ? "bg-emerald-600 text-white" : "bg-stone-200 text-stone-600"
-                  }`}>
-                    2
-                  </span>
-                  <span className={`text-xs font-bold ${businessStep === 3 ? "text-stone-900" : "text-stone-400"}`}>
-                    AI एड मेकर व प्रीव्यू
-                  </span>
+                <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-white leading-tight">
+                  ChatGPT से विज्ञापन डिज़ाइन करवाएँ और परिचायिका में प्रकाशित करें
+                </h2>
+                <p className="text-sm text-emerald-100/90 leading-relaxed">
+                  नीचे दिए गए ३ आकारों में से अपनी पसंद का आकार चुनें। रेडीमेड प्रॉम्ट कॉपी करके ChatGPT में अपना विज्ञापन तैयार करें और डिज़ाइन लिंक पेस्ट करके तुरंत कार्ट में जोड़ें।
+                </p>
+
+                {/* 3 Step Quick Flow */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-3">
+                  <div className="bg-white/10 backdrop-blur-xs p-3.5 rounded-xl border border-white/15">
+                    <span className="w-6 h-6 rounded-full bg-emerald-400 text-slate-950 font-black text-xs inline-flex items-center justify-center mb-2">1</span>
+                    <h4 className="text-xs font-bold text-white">प्रॉम्ट कॉपी करें</h4>
+                    <p className="text-[11px] text-emerald-200 mt-1">अपने इच्छित आकार का ChatGPT प्रॉम्ट "कॉपी" करें।</p>
+                  </div>
+                  <div className="bg-white/10 backdrop-blur-xs p-3.5 rounded-xl border border-white/15">
+                    <span className="w-6 h-6 rounded-full bg-emerald-400 text-slate-950 font-black text-xs inline-flex items-center justify-center mb-2">2</span>
+                    <h4 className="text-xs font-bold text-white">ChatGPT में पोस्टर बनाएं</h4>
+                    <p className="text-[11px] text-emerald-200 mt-1">ChatGPT खोलें और अपने व्यापार की जानकारी डालकर पोस्टर तैयार करवाएँ।</p>
+                  </div>
+                  <div className="bg-white/10 backdrop-blur-xs p-3.5 rounded-xl border border-white/15">
+                    <span className="w-6 h-6 rounded-full bg-emerald-400 text-slate-950 font-black text-xs inline-flex items-center justify-center mb-2">3</span>
+                    <h4 className="text-xs font-bold text-white">लिंक दर्ज कर पे करें</h4>
+                    <p className="text-[11px] text-emerald-200 mt-1">डिज़ाइन लिंक पेस्ट करें और कार्ट में जोड़कर भुगतान पूरा करें।</p>
+                  </div>
                 </div>
               </div>
             </div>
 
-            {businessStep === 1 && (
-              <form onSubmit={handleBusinessSave} className="bg-white border border-stone-200 rounded-2xl p-4 sm:p-6 md:p-8 shadow-sm space-y-6">
-                {/* Auto Ad Number Card (Mandatory / Auto Allocated) */}
-                <div className="w-full bg-gradient-to-r from-emerald-50 to-teal-50/60 border border-emerald-200 rounded-xl p-3.5 sm:p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-2xs">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-emerald-700 text-white flex items-center justify-center font-black shadow-xs shrink-0">
-                      <Hash className="w-5 h-5" />
+            {/* THREE SIZE SECTIONS */}
+            <div className="space-y-8">
+              {/* SECTION 1: FULL PAGE (7.2 x 9.6 inches) */}
+              <div className="bg-white border-2 border-emerald-500/40 hover:border-emerald-600 rounded-3xl p-6 sm:p-8 shadow-md transition-all space-y-6">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-stone-200">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                      <span className="bg-emerald-700 text-white text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider">
+                        सर्वाधिक लोकप्रिय • Full Page
+                      </span>
+                      <span className="bg-stone-100 text-stone-700 text-xs font-mono font-bold px-2.5 py-1 rounded-lg border border-stone-200">
+                        7.2 × 9.6 इंच
+                      </span>
                     </div>
-                    <div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <label className="text-xs sm:text-sm font-black uppercase tracking-wider text-stone-900">
-                          ऑटो विज्ञापन क्रमांक (Auto Ad Number)
-                        </label>
-                        <span className="bg-emerald-700 text-white text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider flex items-center gap-1">
-                          <ShieldCheck className="w-3 h-3" /> अनिवार्य / Auto Assigned
-                        </span>
-                      </div>
-                      <p className="text-[11px] sm:text-xs text-stone-600 mt-0.5">
-                        व्यावसायिक विज्ञापन हेतु सिस्टम द्वारा आवंटित क्रमांक (Sequential ID)
-                      </p>
-                    </div>
+                    <h3 className="text-xl sm:text-2xl font-black text-stone-900 pt-1">
+                      1. पूरा पृष्ठ विज्ञापन (Full Page Magazine Ad)
+                    </h3>
+                    <p className="text-xs text-stone-500 font-medium">
+                      सम्पूर्ण पत्रिका पृष्ठ पर भव्य, विस्तृत एवं आकर्षक विज्ञापन प्रस्तुति
+                    </p>
                   </div>
-                  <div className="w-full sm:w-auto flex sm:flex-col items-center sm:items-end justify-between sm:justify-center bg-white border border-emerald-300 px-3.5 py-1.5 rounded-lg shadow-2xs shrink-0">
-                    <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">आवंटित संख्या</span>
-                    <span className="text-base sm:text-lg font-mono font-black text-emerald-800">
-                      {savedAdNumber || nextBusinessAdNum || "BUS-001 / परिचायिका"}
+
+                  <div className="sm:text-right bg-emerald-50 sm:bg-transparent p-3 sm:p-0 rounded-xl w-full sm:w-auto">
+                    <span className="text-xs text-stone-500 font-bold block">प्रकाशन दर (Price)</span>
+                    <span className="text-2xl sm:text-3xl font-black text-emerald-800 font-mono">
+                      ₹{(masters.pricings?.find(p => p.adv_size_code === "business_full")?.price || 5000).toLocaleString("en-IN")}
                     </span>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
-                  <TransliteratedInput
-                    value={businessForm.businessName}
-                    onChange={(val) => setBusinessForm({ ...businessForm, businessName: val })}
-                    label="व्यवसाय/संस्था का नाम (Business Name)"
-                    required
-                  />
-
-                  <TransliteratedInput
-                    value={businessForm.ownerName}
-                    onChange={(val) => setBusinessForm({ ...businessForm, ownerName: val })}
-                    label="मालिक/संचालक का नाम (Owner)"
-                  />
-
-                  <TransliteratedInput
-                    value={businessForm.category}
-                    onChange={(val) => setBusinessForm({ ...businessForm, category: val })}
-                    label="व्यवसाय श्रेणी (Category - e.g. किराना, ज्वेलर्स, क्लॉथ स्टोर)"
-                  />
-
-                  <TransliteratedInput
-                    value={businessForm.specialOffer}
-                    onChange={(val) => setBusinessForm({ ...businessForm, specialOffer: val })}
-                    label="विशेष ऑफर (Special Offer - e.g. 5% की सीधी छूट!)"
-                  />
-
-                  <div className="w-full col-span-1 md:col-span-2">
-                    <TransliteratedInput
-                      value={businessForm.businessDesc}
-                      onChange={(val) => setBusinessForm({ ...businessForm, businessDesc: val })}
-                      label="व्यवसाय विवरण (Business Description)"
-                      isTextArea
-                      rows={2}
-                    />
-                  </div>
-
-                  <div className="w-full col-span-1 md:col-span-2">
-                    <TransliteratedInput
-                      value={businessForm.productsServices}
-                      onChange={(val) => setBusinessForm({ ...businessForm, productsServices: val })}
-                      label="मुख्य उत्पाद एवं सेवाएँ (Products & Services)"
-                      isTextArea
-                      rows={2}
-                    />
-                  </div>
-
-                  <div className="w-full min-w-0 flex flex-col space-y-1.5">
-                    <label className="text-xs md:text-sm font-bold text-stone-700 block">
-                      मोबाइल नंबर 1 <span className="text-red-500 font-bold">*</span>
+                {/* ChatGPT Prompt Card */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <label className="text-xs font-bold text-stone-700 flex items-center gap-1.5">
+                      <Sparkles className="w-4 h-4 text-emerald-600" />
+                      ChatGPT प्रॉम्ट (Full Page Print Template):
                     </label>
-                    <input
-                      type="tel"
-                      required
-                      value={businessForm.mobile1}
-                      onChange={(e) => setBusinessForm({ ...businessForm, mobile1: e.target.value })}
-                      placeholder="दस अंकों का संपर्क नंबर"
-                      className="w-full block box-border min-w-0 px-3.5 py-2.5 border border-stone-300 rounded-xl text-stone-800 bg-white placeholder-stone-400 text-sm md:text-[15px] outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all shadow-xs"
-                    />
-                  </div>
-
-                  <div className="w-full min-w-0 flex flex-col space-y-1.5">
-                    <label className="text-xs md:text-sm font-bold text-stone-700 block">मोबाइल नंबर 2</label>
-                    <input
-                      type="tel"
-                      value={businessForm.mobile2}
-                      onChange={(e) => setBusinessForm({ ...businessForm, mobile2: e.target.value })}
-                      placeholder="वैकल्पिक नंबर"
-                      className="w-full block box-border min-w-0 px-3.5 py-2.5 border border-stone-300 rounded-xl text-stone-800 bg-white placeholder-stone-400 text-sm md:text-[15px] outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all shadow-xs"
-                    />
-                  </div>
-
-                  <div className="w-full min-w-0 flex flex-col space-y-1.5">
-                    <label className="text-xs md:text-sm font-bold text-stone-700 block">WhatsApp नंबर</label>
-                    <input
-                      type="tel"
-                      value={businessForm.whatsapp}
-                      onChange={(e) => setBusinessForm({ ...businessForm, whatsapp: e.target.value })}
-                      placeholder="WhatsApp संपर्क नंबर"
-                      className="w-full block box-border min-w-0 px-3.5 py-2.5 border border-stone-300 rounded-xl text-stone-800 bg-white placeholder-stone-400 text-sm md:text-[15px] outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all shadow-xs"
-                    />
-                  </div>
-
-                  <div className="w-full min-w-0 flex flex-col space-y-1.5">
-                    <label className="text-xs md:text-sm font-bold text-stone-700 block">ईमेल (Email Address)</label>
-                    <input
-                      type="email"
-                      value={businessForm.email}
-                      onChange={(e) => setBusinessForm({ ...businessForm, email: e.target.value })}
-                      placeholder="info@example.com"
-                      className="w-full block box-border min-w-0 px-3.5 py-2.5 border border-stone-300 rounded-xl text-stone-800 bg-white placeholder-stone-400 text-sm md:text-[15px] outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all shadow-xs"
-                    />
-                  </div>
-
-                  <div className="w-full col-span-1 md:col-span-2">
-                    <TransliteratedInput
-                      value={businessForm.businessAddress}
-                      onChange={(val) => setBusinessForm({ ...businessForm, businessAddress: val })}
-                      label="व्यवसाय पता (Business Address)"
-                      isTextArea
-                      rows={2}
-                    />
-                  </div>
-
-                  {/* Dynamic Custom Fields (Strictly Exclude Standard Fields & Variations to Prevent Duplication) */}
-                  {dynFields.business.filter(f => {
-                    const norm = (f.field_name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
-                    const banned = [
-                      "businessname", "ownername", "category", "businessdesc", "productsservices", 
-                      "specialoffer", "keyfeatures", "mobile1", "mobile2", "whatsapp", "email", 
-                      "businessaddress", "otheraddress", "logourl", "photourl", "readyadurl"
-                    ];
-                    return !banned.includes(norm);
-                  }).map((f) => {
-                    const fieldVal = businessForm[f.field_name] || f.default_value || "";
-                    const onChangeVal = (val: string) => setBusinessForm({ ...businessForm, [f.field_name]: val });
-
-                    return (
-                      <div key={f.id} className={f.field_type === "textarea" ? "w-full col-span-1 md:col-span-2" : "w-full min-w-0"}>
-                        {f.field_type === "textarea" ? (
-                          <TransliteratedInput
-                            value={fieldVal}
-                            onChange={onChangeVal}
-                            label={f.label}
-                            required={f.required === 1}
-                            isTextArea
-                            rows={2}
-                          />
-                        ) : f.field_type === "select" ? (
-                          <div className="w-full min-w-0 flex flex-col space-y-1.5">
-                            <label className="text-xs md:text-sm font-bold text-stone-700 block">
-                              {f.label}{f.required ? " *" : ""}
-                            </label>
-                            <select
-                              value={fieldVal}
-                              onChange={(e) => onChangeVal(e.target.value)}
-                              required={f.required === 1}
-                              className="w-full block box-border min-w-0 px-3.5 py-2.5 border border-stone-300 rounded-xl text-stone-800 bg-white text-sm md:text-[15px] focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all shadow-xs"
-                            >
-                              <option value="">-- चुनें --</option>
-                              {f.select_options.split(",").map((opt: string) => (
-                                <option key={opt.trim()} value={opt.trim()}>{opt.trim()}</option>
-                              ))}
-                            </select>
-                            {f.help_text && <p className="text-[11px] text-stone-400 mt-1">{f.help_text}</p>}
-                          </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleCopyPrompt("business_full")}
+                        className={`text-xs font-bold px-3 py-1.5 rounded-lg border transition-all flex items-center gap-1.5 cursor-pointer ${
+                          copiedPromptKey === "business_full"
+                            ? "bg-emerald-600 text-white border-emerald-600"
+                            : "bg-stone-100 hover:bg-stone-200 text-stone-800 border-stone-300"
+                        }`}
+                      >
+                        {copiedPromptKey === "business_full" ? (
+                          <>
+                            <Check className="w-3.5 h-3.5" />
+                            प्रॉम्ट कॉपी हो गया!
+                          </>
                         ) : (
-                          <div className="w-full min-w-0">
-                            <TransliteratedInput
-                              value={fieldVal}
-                              onChange={onChangeVal}
-                              label={f.label}
-                              required={f.required === 1}
-                              placeholder={f.placeholder || ""}
-                            />
-                            {f.help_text && <p className="text-[11px] text-stone-400 mt-1">{f.help_text}</p>}
-                          </div>
+                          <>
+                            <Copy className="w-3.5 h-3.5" />
+                            प्रॉम्ट कॉपी करें
+                          </>
                         )}
-                      </div>
-                    );
-                  })}
+                      </button>
 
-                  {/* Image Logo uploads pipeline */}
-                  <div className="w-full col-span-1 md:col-span-2 border border-stone-200 rounded-2xl p-4 md:p-6 bg-stone-50 grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 shadow-xs">
-                    <div>
-                      <label className="text-xs font-bold text-stone-500 uppercase block mb-1.5">व्यवसाय लोगो (Logo Image)</label>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => handleFileUpload(e, "logoUrl")}
-                        className="text-xs w-full"
-                      />
-                      {uploadingField === "logoUrl" && (
-                        <p className="text-xs text-orange-600 mt-1 flex items-center gap-1">
-                          <span className="inline-block w-2.5 h-2.5 border-2 border-orange-600 border-t-transparent rounded-full animate-spin"></span>
-                          अपलोड हो रहा है...
-                        </p>
-                      )}
-                      {uploadSuccesses["logoUrl"] && businessForm.logoUrl && (
-                        <div className="mt-2 space-y-1">
-                          <p className="text-xs text-emerald-600 font-semibold flex items-center gap-1">
-                            ✓ लोगो सफलतापूर्वक अपलोड हुआ
-                          </p>
-                          <div className="flex items-center gap-2">
-                            <img src={businessForm.logoUrl} alt="Logo" className="h-12 w-auto border object-contain rounded bg-white p-0.5" referrerPolicy="no-referrer" />
-                            <button
-                              type="button"
-                              onClick={() => handleUploadRemove("logoUrl")}
-                              className="text-xs font-bold text-red-600 hover:text-red-800 bg-red-50 hover:bg-red-100 px-2 py-1 rounded cursor-pointer"
-                            >
-                              हटाएँ
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                      {!uploadSuccesses["logoUrl"] && businessForm.logoUrl && (
-                        <div className="mt-2 flex items-center gap-2">
-                          <img src={businessForm.logoUrl} alt="Logo" className="h-12 w-auto border object-contain rounded bg-white p-0.5" referrerPolicy="no-referrer" />
-                          <button
-                            type="button"
-                            onClick={() => handleUploadRemove("logoUrl")}
-                            className="text-xs font-bold text-red-600 hover:text-red-800 bg-red-50 hover:bg-red-100 px-2 py-1 rounded cursor-pointer"
-                          >
-                            हटाएँ
-                          </button>
-                        </div>
-                      )}
-                      {uploadErrors["logoUrl"] && (
-                        <div className="mt-2 p-2 bg-red-50 border border-red-100 rounded">
-                          <p className="text-xs text-red-600 font-semibold">अपलोड विफल: {uploadErrors["logoUrl"]}</p>
-                          <button
-                            type="button"
-                            onClick={() => handleUploadRetry("logoUrl")}
-                            className="mt-1 text-xs font-bold text-orange-600 hover:text-orange-800 flex items-center gap-1 cursor-pointer"
-                          >
-                            पुनः प्रयास करें
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    <div>
-                      <label className="text-xs font-bold text-stone-500 uppercase block mb-1.5">दुकान/व्यवसाय फोटो (Shop Image)</label>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => handleFileUpload(e, "photoUrl")}
-                        className="text-xs w-full"
-                      />
-                      {uploadingField === "photoUrl" && (
-                        <p className="text-xs text-orange-600 mt-1 flex items-center gap-1">
-                          <span className="inline-block w-2.5 h-2.5 border-2 border-orange-600 border-t-transparent rounded-full animate-spin"></span>
-                          अपलोड हो रहा है...
-                        </p>
-                      )}
-                      {uploadSuccesses["photoUrl"] && businessForm.photoUrl && (
-                        <div className="mt-2 space-y-1">
-                          <p className="text-xs text-emerald-600 font-semibold flex items-center gap-1">
-                            ✓ फोटो सफलतापूर्वक अपलोड हुई
-                          </p>
-                          <div className="flex items-center gap-2">
-                            <img src={businessForm.photoUrl} alt="Shop Preview" className="h-12 w-auto border object-cover rounded" referrerPolicy="no-referrer" />
-                            <button
-                              type="button"
-                              onClick={() => handleUploadRemove("photoUrl")}
-                              className="text-xs font-bold text-red-600 hover:text-red-800 bg-red-50 hover:bg-red-100 px-2 py-1 rounded cursor-pointer"
-                            >
-                              हटाएँ
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                      {!uploadSuccesses["photoUrl"] && businessForm.photoUrl && (
-                        <div className="mt-2 flex items-center gap-2">
-                          <img src={businessForm.photoUrl} alt="Shop Preview" className="h-12 w-auto border object-cover rounded" referrerPolicy="no-referrer" />
-                          <button
-                            type="button"
-                            onClick={() => handleUploadRemove("photoUrl")}
-                            className="text-xs font-bold text-red-600 hover:text-red-800 bg-red-50 hover:bg-red-100 px-2 py-1 rounded cursor-pointer"
-                          >
-                            हटाएँ
-                          </button>
-                        </div>
-                      )}
-                      {uploadErrors["photoUrl"] && (
-                        <div className="mt-2 p-2 bg-red-50 border border-red-100 rounded">
-                          <p className="text-xs text-red-600 font-semibold">अपलोड विफल: {uploadErrors["photoUrl"]}</p>
-                          <button
-                            type="button"
-                            onClick={() => handleUploadRetry("photoUrl")}
-                            className="mt-1 text-xs font-bold text-orange-600 hover:text-orange-800 flex items-center gap-1 cursor-pointer"
-                          >
-                            पुनः प्रयास करें
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    <div>
-                      <label className="text-xs font-bold text-stone-500 uppercase block mb-1.5">पहले से बना विज्ञापन (Custom AD)</label>
-                      <input
-                        type="file"
-                        accept="image/*,application/pdf"
-                        onChange={(e) => handleFileUpload(e, "readyAdUrl")}
-                        className="text-xs w-full"
-                      />
-                      {uploadingField === "readyAdUrl" && (
-                        <p className="text-xs text-orange-600 mt-1 flex items-center gap-1">
-                          <span className="inline-block w-2.5 h-2.5 border-2 border-orange-600 border-t-transparent rounded-full animate-spin"></span>
-                          अपलोड हो रहा है...
-                        </p>
-                      )}
-                      {uploadSuccesses["readyAdUrl"] && businessForm.readyAdUrl && (
-                        <div className="mt-2 space-y-1">
-                          <p className="text-xs text-emerald-600 font-semibold flex items-center gap-1">
-                            ✓ विज्ञापन सफलतापूर्वक अपलोड हुआ
-                          </p>
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-bold text-stone-600 bg-stone-100 px-2 py-1 rounded">विज्ञापन.pdf / .jpg</span>
-                            <button
-                              type="button"
-                              onClick={() => handleUploadRemove("readyAdUrl")}
-                              className="text-xs font-bold text-red-600 hover:text-red-800 bg-red-50 hover:bg-red-100 px-2 py-1 rounded cursor-pointer"
-                            >
-                              हटाएँ
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                      {!uploadSuccesses["readyAdUrl"] && businessForm.readyAdUrl && (
-                        <div className="mt-2 flex items-center gap-2">
-                          <span className="text-xs font-bold text-stone-600 bg-stone-100 px-2 py-1 rounded">विज्ञापन.pdf / .jpg</span>
-                          <button
-                            type="button"
-                            onClick={() => handleUploadRemove("readyAdUrl")}
-                            className="text-xs font-bold text-red-600 hover:text-red-800 bg-red-50 hover:bg-red-100 px-2 py-1 rounded cursor-pointer"
-                          >
-                            हटाएँ
-                          </button>
-                        </div>
-                      )}
-                      {uploadErrors["readyAdUrl"] && (
-                        <div className="mt-2 p-2 bg-red-50 border border-red-100 rounded">
-                          <p className="text-xs text-red-600 font-semibold">अपलोड विफल: {uploadErrors["readyAdUrl"]}</p>
-                          <button
-                            type="button"
-                            onClick={() => handleUploadRetry("readyAdUrl")}
-                            className="mt-1 text-xs font-bold text-orange-600 hover:text-orange-800 flex items-center gap-1 cursor-pointer"
-                          >
-                            पुनः प्रयास करें
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* प्रकाशन पत्रिका, साहू संगठन एवं विज्ञापन आकार */}
-                <div className="pt-6 border-t border-stone-200 space-y-4">
-                  <h3 className="text-base font-bold text-stone-800 border-b pb-2">प्रकाशन पत्रिका, साहू संगठन एवं विज्ञापन आकार</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-xs font-semibold text-stone-500 block mb-1">पत्रिका प्रकाशन (पूर्व-निर्धारित सूची - वैकल्पिक)</label>
-                      <select
-                        value={selectedPubId}
-                        onChange={(e) => handlePubSelectionChange(e.target.value, "business")}
-                        className="w-full px-3.5 py-2.5 border border-stone-300 rounded-xl text-sm bg-white text-stone-800 focus:outline-none focus:ring-2 focus:ring-orange-500 shadow-xs"
+                      <a
+                        href="https://chatgpt.com"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs font-bold bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-300 px-3 py-1.5 rounded-lg flex items-center gap-1 cursor-pointer transition-all"
                       >
-                        <option value="">-- पूर्व-निर्धारित सूची से चुनें --</option>
-                        {userConfigs.filter((cfg) => (cfg.adv_type === "व्यवसाय" || cfg.adv_type === "business") && cfg.status === "enabled").map((cfg) => (
-                          <option key={cfg.configuration_id} value={cfg.configuration_id}>
-                            {cfg.district} • {cfg.sangathan} • {cfg.magazine} ({cfg.edition}) — ₹{cfg.pricing} [Super Admin]
-                          </option>
-                        ))}
-                        {masters.publications.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.district_hi} • {p.sangathan_hi} • {p.magazine_hi} ({p.edition_hi})
-                          </option>
-                        ))}
-                      </select>
+                        ChatGPT खोलें <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
                     </div>
+                  </div>
 
-                    <div>
-                      <label className="text-xs font-semibold text-[#E65100] block mb-1">विज्ञापन आकार चुनें *</label>
-                      <select
-                        value={selectedSizeCode}
-                        required
-                        onChange={(e) => setSelectedSizeCode(e.target.value)}
-                        className="w-full px-3.5 py-2.5 border border-[#E65100] rounded-xl text-sm bg-white text-stone-800 font-bold focus:outline-none focus:ring-2 focus:ring-orange-500 shadow-xs"
-                      >
-                        <option value="">-- आकार चुनें --</option>
-                        {masters.sizes.filter(sz => sz.code !== "matrimony_standard").map((sz) => (
-                          <option key={sz.id} value={sz.code}>{sz.name_hi}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="text-xs font-semibold text-stone-500 block mb-1">जिला (District) *</label>
-                      <input
-                        type="text"
-                        required
-                        value={businessForm.district_hi || ""}
-                        onChange={(e) => setBusinessForm({ ...businessForm, district_hi: e.target.value })}
-                        list="district-datalist"
-                        placeholder="जैसे: रायपुर"
-                        className="w-full px-3.5 py-2.5 border border-stone-300 rounded-xl text-sm text-stone-800 bg-white placeholder-stone-400 outline-none focus:ring-2 focus:ring-orange-500 font-medium shadow-xs"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-xs font-semibold text-stone-500 block mb-1">संगठन (Sangathan) *</label>
-                      <input
-                        type="text"
-                        required
-                        value={businessForm.sangathan_hi || ""}
-                        onChange={(e) => setBusinessForm({ ...businessForm, sangathan_hi: e.target.value })}
-                        list="sangathan-datalist"
-                        placeholder="जैसे: रायपुर साहू संगठन"
-                        className="w-full px-3.5 py-2.5 border border-stone-300 rounded-xl text-sm text-stone-800 bg-white placeholder-stone-400 outline-none focus:ring-2 focus:ring-orange-500 font-medium shadow-xs"
-                      />
-                    </div>
+                  <div className="bg-stone-900 text-stone-100 p-4 rounded-xl text-xs font-mono whitespace-pre-wrap leading-relaxed border border-stone-800 select-all">
+                    {BUSINESS_PROMPTS.business_full}
                   </div>
                 </div>
 
-                <div className="pt-4 border-t border-stone-100 flex justify-end">
-                  <button
-                    type="submit"
-                    className="bg-orange-600 hover:bg-orange-700 text-white font-bold py-2.5 px-6 rounded-lg text-sm shadow cursor-pointer"
-                  >
-                    विवरण सुरक्षित करें और प्रीव्यू देखें
-                  </button>
-                </div>
-              </form>
-            )}
-
-            {businessStep === 3 && (
-              /* DIGITAL CARD PREVIEW FOR BUSINESS AD DETAILS */
-              <div className="space-y-6">
-                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-2xs">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-emerald-700 text-white flex items-center justify-center font-black">
-                      <Hash className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-stone-500 uppercase tracking-wider block font-bold">आवंटित विज्ञापन संख्या</span>
-                      <span className="text-base sm:text-lg font-mono font-black text-emerald-800">{savedAdNumber || "BUS-001"}</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-lg border border-emerald-200 shadow-2xs shrink-0">
-                    <span className="text-xs text-stone-600 font-medium">निर्धारित दर (Price):</span>
-                    <span className="text-base sm:text-lg font-mono font-black text-stone-900">₹{savedPrice}</span>
-                  </div>
-                </div>
-
-                <div className="bg-white border border-stone-200 rounded-2xl p-4 sm:p-6 md:p-8 shadow-sm space-y-6">
+                {/* Link Input & Add to Cart Action */}
+                <div className="bg-stone-50 border border-stone-200 rounded-2xl p-4 sm:p-5 space-y-4">
                   <div>
-                    <h3 className="text-base sm:text-lg font-black text-stone-800 flex items-center gap-2">
-                      <Sparkles className="w-5 h-5 text-emerald-600" />
-                      व्यावसायिक विज्ञापन प्रीव्यू
-                    </h3>
-                    <p className="text-xs text-stone-500 mt-0.5">
-                      चुने गए आकार: {masters.sizes.find(s => s.code === selectedSizeCode)?.name_hi || "व्यावसायिक विज्ञापन आकार"} • वास्तविक छपाई का सुंदर डिजिटल लेआउट
+                    <label className="text-xs font-bold text-stone-800 block mb-1.5">
+                      डिज़ाइन लिंक (Design Link / Shared URL) पेस्ट करें *
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="url"
+                        value={businessLinks.business_full}
+                        onChange={(e) => setBusinessLinks({ ...businessLinks, business_full: e.target.value })}
+                        placeholder="ChatGPT शेयर लिंक, Google Drive या इमेज का URL (उदा. https://...)"
+                        className="w-full pl-3.5 pr-4 py-3 bg-white border border-stone-300 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200 rounded-xl text-xs sm:text-sm font-medium text-stone-900 outline-none transition-all"
+                      />
+                    </div>
+                    <p className="text-[11px] text-stone-500 mt-1">
+                      ChatGPT से प्राप्त शेयर लिंक या अपनी फ़ाइल का ऑनलाइन लिंक यहाँ पेस्ट करें।
                     </p>
                   </div>
 
-                  {/* Responsive Digital Card / Banner Representation */}
-                  <div className="flex justify-center p-3 sm:p-6 bg-stone-50 rounded-2xl border border-stone-100">
-                    <div className="w-full max-w-xl bg-white border-2 border-stone-300 rounded-2xl overflow-hidden shadow-md">
-                      {businessForm.readyAdUrl ? (
-                        /* READY-MADE CUSTOM AD BANNER */
-                        <div className="p-4 space-y-3">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-orange-600 bg-orange-50 px-2 py-0.5 rounded border border-orange-200 inline-block">
-                            अपलोड किया गया कस्टम विज्ञापन बैनर
-                          </span>
-                          <div className="aspect-video bg-stone-100 rounded-lg overflow-hidden border border-stone-200 flex items-center justify-center">
-                            <img
-                              src={businessForm.readyAdUrl}
-                              alt="Custom Advertisement"
-                              className="w-full h-full object-contain"
-                              referrerPolicy="no-referrer"
-                            />
-                          </div>
-                        </div>
-                      ) : (
-                        /* SYSTEM COMPILED VISUAL BUSINESS CARD */
-                        <div className="p-5 sm:p-7 space-y-5">
-                          {/* Top Header Row with Logo & Title */}
-                          <div className="flex items-start justify-between gap-4 border-b border-stone-100 pb-4">
-                            <div className="min-w-0">
-                              <span className="text-[10px] font-black uppercase tracking-wider text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-100 inline-block mb-1.5 shadow-2xs">
-                                {businessForm.category}
-                              </span>
-                              <h2 className="text-lg sm:text-2xl font-black text-stone-900 leading-tight">
-                                {businessForm.businessName}
-                              </h2>
-                              <p className="text-xs text-stone-500 font-bold mt-1">
-                                संचालक: <span className="text-stone-800 font-black">{businessForm.ownerName}</span>
-                              </p>
-                            </div>
+                  <button
+                    type="button"
+                    disabled={isSubmittingBusiness}
+                    onClick={() => handleAddBusinessAdToCart("business_full")}
+                    className="w-full sm:w-auto bg-emerald-700 hover:bg-emerald-800 disabled:bg-stone-300 text-white font-black text-xs sm:text-sm px-6 py-3 rounded-xl shadow hover:shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    {isSubmittingBusiness ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        कार्ट में जोड़ा जा रहा है...
+                      </>
+                    ) : (
+                      <>
+                        <ShoppingCart className="w-4 h-4" />
+                        फुल पेज विज्ञापन कार्ट में जोड़ें (Add to Cart) →
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
 
-                            {businessForm.logoUrl && (
-                              <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl bg-white border border-stone-200 p-1.5 shadow-2xs shrink-0 flex items-center justify-center">
-                                <img
-                                  src={businessForm.logoUrl}
-                                  alt="Business Logo"
-                                  className="w-full h-full object-contain rounded-lg"
-                                  referrerPolicy="no-referrer"
-                                />
-                              </div>
-                            )}
-                          </div>
+              {/* SECTION 2: HALF PAGE (7.2 x 4.8 inches) */}
+              <div className="bg-white border-2 border-stone-200 hover:border-emerald-500/50 rounded-3xl p-6 sm:p-8 shadow-md transition-all space-y-6">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-stone-200">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                      <span className="bg-teal-700 text-white text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider">
+                        संतुलित लेआउट • Half Page
+                      </span>
+                      <span className="bg-stone-100 text-stone-700 text-xs font-mono font-bold px-2.5 py-1 rounded-lg border border-stone-200">
+                        7.2 × 4.8 इंच
+                      </span>
+                    </div>
+                    <h3 className="text-xl sm:text-2xl font-black text-stone-900 pt-1">
+                      2. आधा पृष्ठ विज्ञापन (Half Page Horizontal Ad)
+                    </h3>
+                    <p className="text-xs text-stone-500 font-medium">
+                      हॉरिजॉन्टल आकर्षक फॉर्मेट, प्रमुख उत्पाद व संपर्क विवरण हेतु सर्वोत्तम
+                    </p>
+                  </div>
 
-                          {/* Middle Section: Details and Photo */}
-                          <div className="grid grid-cols-1 sm:grid-cols-12 gap-5">
-                            {/* Contact & Main Description Details */}
-                            <div className="sm:col-span-7 space-y-3.5 text-xs text-stone-700 leading-relaxed font-medium">
-                              <div>
-                                <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider block mb-0.5">व्यवसाय विवरण</span>
-                                <p className="text-stone-800 font-semibold">{businessForm.businessDesc}</p>
-                              </div>
+                  <div className="sm:text-right bg-teal-50 sm:bg-transparent p-3 sm:p-0 rounded-xl w-full sm:w-auto">
+                    <span className="text-xs text-stone-500 font-bold block">प्रकाशन दर (Price)</span>
+                    <span className="text-2xl sm:text-3xl font-black text-teal-800 font-mono">
+                      ₹{(masters.pricings?.find(p => p.adv_size_code === "business_half")?.price || 3000).toLocaleString("en-IN")}
+                    </span>
+                  </div>
+                </div>
 
-                              <div>
-                                <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider block mb-0.5">मुख्य उत्पाद एवं सेवाएँ</span>
-                                <p className="text-stone-800 font-semibold">{businessForm.productsServices}</p>
-                              </div>
-                            </div>
+                {/* ChatGPT Prompt Card */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <label className="text-xs font-bold text-stone-700 flex items-center gap-1.5">
+                      <Sparkles className="w-4 h-4 text-teal-600" />
+                      ChatGPT प्रॉम्ट (Half Page Print Template):
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleCopyPrompt("business_half")}
+                        className={`text-xs font-bold px-3 py-1.5 rounded-lg border transition-all flex items-center gap-1.5 cursor-pointer ${
+                          copiedPromptKey === "business_half"
+                            ? "bg-teal-700 text-white border-teal-700"
+                            : "bg-stone-100 hover:bg-stone-200 text-stone-800 border-stone-300"
+                        }`}
+                      >
+                        {copiedPromptKey === "business_half" ? (
+                          <>
+                            <Check className="w-3.5 h-3.5" />
+                            प्रॉम्ट कॉपी हो गया!
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5" />
+                            प्रॉम्ट कॉपी करें
+                          </>
+                        )}
+                      </button>
 
-                            {/* Shop/Business Photograph */}
-                            <div className="sm:col-span-5 flex flex-col justify-center items-center">
-                              {businessForm.photoUrl ? (
-                                <div className="w-full h-24 sm:h-28 rounded-xl bg-stone-50 border border-stone-200 overflow-hidden shadow-2xs">
-                                  <img
-                                    src={businessForm.photoUrl}
-                                    alt="Business Shop"
-                                    className="w-full h-full object-cover"
-                                    referrerPolicy="no-referrer"
-                                  />
-                                </div>
-                              ) : (
-                                <div className="w-full h-24 sm:h-28 rounded-xl bg-stone-50 border-2 border-dashed border-stone-200 flex flex-col items-center justify-center text-center p-2 text-stone-400">
-                                  <Store className="w-6 h-6 text-stone-300 mb-1" />
-                                  <span className="text-[9px]">दुकान फ़ोटो</span>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Highlight: Special Offer Banner */}
-                          {businessForm.specialOffer && (
-                            <div className="bg-gradient-to-r from-amber-50 to-orange-50/60 border border-amber-200 rounded-xl p-3 flex items-center gap-2.5 shadow-2xs">
-                              <Gift className="w-5 h-5 text-amber-600 shrink-0" />
-                              <div className="text-xs">
-                                <span className="font-black text-amber-800 block uppercase tracking-wider text-[10px]">विशेष त्यौहार / आमंत्रण ऑफर</span>
-                                <p className="text-stone-700 font-bold mt-0.5">{businessForm.specialOffer}</p>
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Footer Contacts Row */}
-                          <div className="border-t border-stone-100 pt-4 flex flex-wrap items-center justify-between gap-3 text-xs">
-                            <div className="flex flex-col gap-1">
-                              <div className="flex items-center gap-1.5 text-stone-800 font-bold">
-                                <Phone className="w-3.5 h-3.5 text-[#E65100]" />
-                                <span className="font-mono">{businessForm.mobile1}</span>
-                                {businessForm.mobile2 && <span className="font-mono text-stone-500">, {businessForm.mobile2}</span>}
-                              </div>
-                              <div className="flex items-center gap-1.5 text-emerald-800 font-bold">
-                                <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
-                                <span className="font-mono">{businessForm.whatsapp}</span>
-                              </div>
-                              {businessForm.email && (
-                                <div className="flex items-center gap-1.5 text-stone-500 font-medium">
-                                  <span className="font-mono">{businessForm.email}</span>
-                                </div>
-                              )}
-                            </div>
-
-                            <div className="text-right">
-                              <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider block">व्यवसाय पता</span>
-                              <p className="text-stone-800 font-bold text-[11px] max-w-[180px] break-words">{businessForm.businessAddress}</p>
-                            </div>
-                          </div>
-                        </div>
-                      )}
+                      <a
+                        href="https://chatgpt.com"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs font-bold bg-teal-50 text-teal-800 hover:bg-teal-100 border border-teal-300 px-3 py-1.5 rounded-lg flex items-center gap-1 cursor-pointer transition-all"
+                      >
+                        ChatGPT खोलें <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
                     </div>
                   </div>
 
-                  <p className="text-center text-xs text-stone-500 font-semibold">
-                    प्रकाशन स्थान: {businessForm.district_hi} • {businessForm.sangathan_hi} • {businessForm.magazine_hi} ({businessForm.edition_hi})
-                  </p>
-
-                  {/* Action Buttons */}
-                  <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3 border-t border-stone-100 pt-4">
-                    <button
-                      type="button"
-                      onClick={() => setBusinessStep(1)}
-                      className="px-4 py-3 sm:py-2 border border-stone-300 hover:bg-stone-50 rounded-xl text-xs sm:text-sm font-bold text-stone-700 transition-all cursor-pointer text-center"
-                    >
-                      ← विवरण संपादित करें
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleApproveAdMakerDesign(null, null, businessForm.readyAdUrl)}
-                      className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs sm:text-sm font-black px-6 py-3.5 rounded-xl shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer"
-                    >
-                      <CheckCircle className="w-4 h-4" />
-                      स्वीकृत करें और कार्ट में जोड़ें (Locks Item)
-                    </button>
+                  <div className="bg-stone-900 text-stone-100 p-4 rounded-xl text-xs font-mono whitespace-pre-wrap leading-relaxed border border-stone-800 select-all">
+                    {BUSINESS_PROMPTS.business_half}
                   </div>
                 </div>
+
+                {/* Link Input & Add to Cart Action */}
+                <div className="bg-stone-50 border border-stone-200 rounded-2xl p-4 sm:p-5 space-y-4">
+                  <div>
+                    <label className="text-xs font-bold text-stone-800 block mb-1.5">
+                      डिज़ाइन लिंक (Design Link / Shared URL) पेस्ट करें *
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="url"
+                        value={businessLinks.business_half}
+                        onChange={(e) => setBusinessLinks({ ...businessLinks, business_half: e.target.value })}
+                        placeholder="ChatGPT शेयर लिंक, Google Drive या इमेज का URL (उदा. https://...)"
+                        className="w-full pl-3.5 pr-4 py-3 bg-white border border-stone-300 focus:border-teal-600 focus:ring-2 focus:ring-teal-200 rounded-xl text-xs sm:text-sm font-medium text-stone-900 outline-none transition-all"
+                      />
+                    </div>
+                    <p className="text-[11px] text-stone-500 mt-1">
+                      ChatGPT से प्राप्त शेयर लिंक या अपनी फ़ाइल का ऑनलाइन लिंक यहाँ पेस्ट करें।
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={isSubmittingBusiness}
+                    onClick={() => handleAddBusinessAdToCart("business_half")}
+                    className="w-full sm:w-auto bg-teal-700 hover:bg-teal-800 disabled:bg-stone-300 text-white font-black text-xs sm:text-sm px-6 py-3 rounded-xl shadow hover:shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    {isSubmittingBusiness ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        कार्ट में जोड़ा जा रहा है...
+                      </>
+                    ) : (
+                      <>
+                        <ShoppingCart className="w-4 h-4" />
+                        हाफ पेज विज्ञापन कार्ट में जोड़ें (Add to Cart) →
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
-            )}
+
+              {/* SECTION 3: QUARTER PAGE (3.6 x 4.8 inches) */}
+              <div className="bg-white border-2 border-stone-200 hover:border-emerald-500/50 rounded-3xl p-6 sm:p-8 shadow-md transition-all space-y-6">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-stone-200">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                      <span className="bg-slate-700 text-white text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider">
+                        किफायती एवं प्रभावी • Quarter Page
+                      </span>
+                      <span className="bg-stone-100 text-stone-700 text-xs font-mono font-bold px-2.5 py-1 rounded-lg border border-stone-200">
+                        3.6 × 4.8 इंच
+                      </span>
+                    </div>
+                    <h3 className="text-xl sm:text-2xl font-black text-stone-900 pt-1">
+                      3. चौथाई पृष्ठ विज्ञापन (Quarter Page Vertical Ad)
+                    </h3>
+                    <p className="text-xs text-stone-500 font-medium">
+                      कॉम्पैक्ट एवं प्रभावशाली वर्टिकल स्पेस, मुख्य सेवाओं के प्रचार हेतु उत्तम
+                    </p>
+                  </div>
+
+                  <div className="sm:text-right bg-slate-100 sm:bg-transparent p-3 sm:p-0 rounded-xl w-full sm:w-auto">
+                    <span className="text-xs text-stone-500 font-bold block">प्रकाशन दर (Price)</span>
+                    <span className="text-2xl sm:text-3xl font-black text-slate-800 font-mono">
+                      ₹{(masters.pricings?.find(p => p.adv_size_code === "business_quarter")?.price || 1500).toLocaleString("en-IN")}
+                    </span>
+                  </div>
+                </div>
+
+                {/* ChatGPT Prompt Card */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <label className="text-xs font-bold text-stone-700 flex items-center gap-1.5">
+                      <Sparkles className="w-4 h-4 text-slate-700" />
+                      ChatGPT प्रॉम्ट (Quarter Page Print Template):
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleCopyPrompt("business_quarter")}
+                        className={`text-xs font-bold px-3 py-1.5 rounded-lg border transition-all flex items-center gap-1.5 cursor-pointer ${
+                          copiedPromptKey === "business_quarter"
+                            ? "bg-slate-800 text-white border-slate-800"
+                            : "bg-stone-100 hover:bg-stone-200 text-stone-800 border-stone-300"
+                        }`}
+                      >
+                        {copiedPromptKey === "business_quarter" ? (
+                          <>
+                            <Check className="w-3.5 h-3.5" />
+                            प्रॉम्ट कॉपी हो गया!
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5" />
+                            प्रॉम्ट कॉपी करें
+                          </>
+                        )}
+                      </button>
+
+                      <a
+                        href="https://chatgpt.com"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs font-bold bg-slate-100 text-slate-800 hover:bg-slate-200 border border-slate-300 px-3 py-1.5 rounded-lg flex items-center gap-1 cursor-pointer transition-all"
+                      >
+                        ChatGPT खोलें <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                    </div>
+                  </div>
+
+                  <div className="bg-stone-900 text-stone-100 p-4 rounded-xl text-xs font-mono whitespace-pre-wrap leading-relaxed border border-stone-800 select-all">
+                    {BUSINESS_PROMPTS.business_quarter}
+                  </div>
+                </div>
+
+                {/* Link Input & Add to Cart Action */}
+                <div className="bg-stone-50 border border-stone-200 rounded-2xl p-4 sm:p-5 space-y-4">
+                  <div>
+                    <label className="text-xs font-bold text-stone-800 block mb-1.5">
+                      डिज़ाइन लिंक (Design Link / Shared URL) पेस्ट करें *
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="url"
+                        value={businessLinks.business_quarter}
+                        onChange={(e) => setBusinessLinks({ ...businessLinks, business_quarter: e.target.value })}
+                        placeholder="ChatGPT शेयर लिंक, Google Drive या इमेज का URL (उदा. https://...)"
+                        className="w-full pl-3.5 pr-4 py-3 bg-white border border-stone-300 focus:border-slate-600 focus:ring-2 focus:ring-slate-200 rounded-xl text-xs sm:text-sm font-medium text-stone-900 outline-none transition-all"
+                      />
+                    </div>
+                    <p className="text-[11px] text-stone-500 mt-1">
+                      ChatGPT से प्राप्त शेयर लिंक या अपनी फ़ाइल का ऑनलाइन लिंक यहाँ पेस्ट करें।
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={isSubmittingBusiness}
+                    onClick={() => handleAddBusinessAdToCart("business_quarter")}
+                    className="w-full sm:w-auto bg-slate-800 hover:bg-slate-900 disabled:bg-stone-300 text-white font-black text-xs sm:text-sm px-6 py-3 rounded-xl shadow hover:shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    {isSubmittingBusiness ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        कार्ट में जोड़ा जा रहा है...
+                      </>
+                    ) : (
+                      <>
+                        <ShoppingCart className="w-4 h-4" />
+                        चौथाई पेज विज्ञापन कार्ट में जोड़ें (Add to Cart) →
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 

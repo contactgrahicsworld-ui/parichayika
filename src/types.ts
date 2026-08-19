@@ -121,6 +121,7 @@ export interface BusinessFormState {
   logoUrl: string;
   photoUrl: string;
   readyAdUrl: string;
+  designLink?: string;
   adMakerDesignJson?: any;
   // Selected Master Details
   district_id: string;

@@ -25,7 +25,8 @@ import {
   Check,
   X,
   Printer,
-  MessageSquare
+  MessageSquare,
+  ExternalLink
 } from "lucide-react";
 import { Order, Advertisement } from "../types";
 import PrintProduction from "./PrintProduction";
@@ -2483,25 +2484,39 @@ export default function AdminPanel() {
                       </div>
                     )}
 
-                    {it.ad_type === "business" && it.businessDetails && (
-                      <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs text-stone-600">
-                        <p><span className="font-bold text-stone-800">व्यवसाय नाम:</span> {it.businessDetails.businessName}</p>
-                        <p><span className="font-bold text-stone-800">मालिक:</span> {it.businessDetails.ownerName}</p>
-                        <p className="col-span-2"><span className="font-bold text-stone-800">विवरण:</span> {it.businessDetails.businessDesc}</p>
-                        <p className="col-span-2"><span className="font-bold text-stone-800">सेवाएं:</span> {it.businessDetails.productsServices}</p>
-                        {it.businessDetails.specialOffer && <p className="col-span-2 text-red-600 font-semibold"><span className="font-bold text-stone-800">ऑफर:</span> {it.businessDetails.specialOffer}</p>}
-                        {it.businessDetails.logoUrl && (
-                          <div className="mt-2">
-                            <span className="font-bold text-stone-800 block mb-1">अपलोडेड लोगो:</span>
-                            <img src={it.businessDetails.logoUrl} alt="Logo" className="h-16 w-auto rounded object-contain" referrerPolicy="no-referrer" />
-                          </div>
-                        )}
-                        {it.businessDetails.readyAdUrl && (
-                          <div className="col-span-2 mt-1">
-                            <span className="font-bold text-stone-800">पहले से बना विज्ञापन: </span>
-                            <a href={it.businessDetails.readyAdUrl} target="_blank" rel="noreferrer" className="text-orange-600 font-bold underline hover:text-orange-700">
-                              फ़ाइल देखें
-                            </a>
+                    {it.ad_type === "business" && (
+                      <div className="space-y-3 text-xs text-stone-700">
+                        <div className="grid grid-cols-2 gap-2 bg-white p-3 rounded-lg border border-stone-200">
+                          <p><span className="font-bold text-stone-900">विज्ञापन आकार:</span> <span className="font-bold text-emerald-800">{it.size_hi || "व्यावसायिक विज्ञापन"}</span></p>
+                          <p><span className="font-bold text-stone-900">दर (Price):</span> <span className="font-bold text-stone-900">₹{it.price}</span></p>
+                          {it.businessDetails?.businessName && it.businessDetails.businessName !== "व्यावसायिक विज्ञापन" && (
+                            <p><span className="font-bold text-stone-900">व्यवसाय नाम:</span> {it.businessDetails.businessName}</p>
+                          )}
+                          {it.businessDetails?.ownerName && it.businessDetails.ownerName !== "व्यावसायिक विज्ञापन" && (
+                            <p><span className="font-bold text-stone-900">संचालक:</span> {it.businessDetails.ownerName}</p>
+                          )}
+                        </div>
+
+                        {/* Direct Customer Design Link Preview & Access */}
+                        {(it.businessDetails?.readyAdUrl || it.businessDetails?.designLink) && (
+                          <div className="bg-emerald-50/80 border border-emerald-300 rounded-xl p-3.5 space-y-2">
+                            <div className="flex items-center justify-between flex-wrap gap-2">
+                              <span className="font-bold text-emerald-950 text-xs flex items-center gap-1.5">
+                                <ExternalLink className="w-4 h-4 text-emerald-700" />
+                                ग्राहक द्वारा सबमिट किया गया विज्ञापन डिज़ाइन लिंक (Design Link)
+                              </span>
+                              <a
+                                href={it.businessDetails.readyAdUrl || it.businessDetails.designLink}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs px-3 py-1.5 rounded-lg shadow-xs transition-all flex items-center gap-1 cursor-pointer"
+                              >
+                                लिंक खोलें ↗
+                              </a>
+                            </div>
+                            <div className="bg-white p-2 rounded-lg border border-emerald-200 text-[11px] font-mono text-stone-800 break-all select-all">
+                              {it.businessDetails.readyAdUrl || it.businessDetails.designLink}
+                            </div>
                           </div>
                         )}
                       </div>

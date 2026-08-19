@@ -339,26 +339,47 @@ export default function PrintProduction({ advertisements }: PrintProductionProps
                         })}
                       </div>
                     ) : (
-                      // Basic layout template render
+                      // Basic layout template render / Customer Design Link
                       <div className="w-11/12 h-5/6 border-4 border-stone-800 p-6 flex flex-col justify-between rounded bg-stone-50">
                         <div className="text-center">
-                          <h2 className="text-3xl font-black text-stone-900">{bus?.business_name}</h2>
-                          <p className="text-sm text-stone-500 mt-1">{bus?.category}</p>
-                          <p className="text-stone-700 mt-4 leading-relaxed">{bus?.business_desc}</p>
+                          <h2 className="text-2xl font-black text-stone-900">{bus?.business_name || "व्यावसायिक विज्ञापन"}</h2>
+                          <p className="text-xs text-stone-500 mt-1">आकार: {item.size_hi} • {item.district_hi} • {item.sangathan_hi}</p>
+                          
+                          {(bus?.ready_ad_url || bus?.design_link) && (
+                            <div className="mt-6 p-4 bg-emerald-50 border-2 border-emerald-400 rounded-xl text-left">
+                              <p className="text-xs font-bold text-emerald-900 mb-1">🔗 ग्राहक द्वारा सबमिट किया गया विज्ञापन डिज़ाइन लिंक:</p>
+                              <a
+                                href={bus.ready_ad_url || bus.design_link}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-xs text-blue-700 font-mono underline break-all block hover:text-blue-900"
+                              >
+                                {bus.ready_ad_url || bus.design_link}
+                              </a>
+                            </div>
+                          )}
+
+                          {bus?.business_desc && (
+                            <p className="text-stone-700 mt-4 leading-relaxed text-sm">{bus?.business_desc}</p>
+                          )}
                         </div>
 
                         {bus?.special_offer && (
-                          <div className="flex justify-center">
-                            <span className="bg-red-600 text-white font-bold px-4 py-2 rounded-full text-sm">
+                          <div className="flex justify-center my-2">
+                            <span className="bg-red-600 text-white font-bold px-4 py-1.5 rounded-full text-xs">
                               ऑफर: {bus.special_offer}
                             </span>
                           </div>
                         )}
 
-                        <div className="text-center border-t border-stone-200 pt-4">
-                          <p className="font-bold text-stone-800">संचालक: {bus?.owner_name}</p>
-                          <p className="text-xl font-bold font-mono text-stone-900 mt-1">फ़ोन: {item.customer_mobile1}</p>
-                          <p className="text-xs text-stone-500 mt-1">पता: {bus?.business_address}</p>
+                        <div className="text-center border-t border-stone-200 pt-3">
+                          {bus?.owner_name && bus.owner_name !== "व्यावसायिक विज्ञापन" && (
+                            <p className="font-bold text-stone-800 text-xs">संचालक: {bus?.owner_name}</p>
+                          )}
+                          <p className="text-lg font-bold font-mono text-stone-900 mt-0.5">फ़ोन: {item.customer_mobile1}</p>
+                          {bus?.business_address && (
+                            <p className="text-xs text-stone-500 mt-0.5">पता: {bus?.business_address}</p>
+                          )}
                         </div>
                       </div>
                     )}

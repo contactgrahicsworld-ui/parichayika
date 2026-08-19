@@ -13,7 +13,6 @@ import {
   dbGet,
   generateAdNumber
 } from "./server/db.js";
-import { generateAdLayout } from "./server/gemini.js";
 
 // Load environment variables
 dotenv.config();
@@ -321,8 +320,10 @@ app.get("/api/advertisements/next-ad-number", async (req: any, res: any) => {
 
 // Create or Edit an Advertisement (Draft/Final with Immediate Immutable Advertisement Number Generation)
 app.post("/api/advertisements/save", async (req: any, res: any) => {
-  const { adId, typeCode, publicationId, sizeCode, customerName, customerMobile, formData } = req.body;
-  if (!typeCode || !customerName || !customerMobile) {
+  const { adId, typeCode, publicationId, sizeCode, customerName, customerMobile, formData = {} } = req.body;
+  const effectiveCustomerName = customerName || (typeCode === "business" ? "व्यवसायिक विज्ञापन" : "");
+  const effectiveCustomerMobile = customerMobile || (typeCode === "business" ? "9999999999" : "");
+  if (!typeCode || !effectiveCustomerName || !effectiveCustomerMobile) {
     return res.status(400).json({ error: "Required fields are missing" });
   }
 
@@ -334,6 +335,22 @@ app.post("/api/advertisements/save", async (req: any, res: any) => {
     let edition_hi = "संस्करण 2026";
     let price = 500;
     let size_hi = "विवाह मानक (3.5 × 2 इंच)";
+
+    if (typeCode === "business") {
+      if (sizeCode === "business_full") {
+        size_hi = "पूरा पृष्ठ (7.2 × 9.6 इंच)";
+        price = 5000;
+      } else if (sizeCode === "business_half") {
+        size_hi = "आधा पृष्ठ (7.2 × 4.8 इंच)";
+        price = 3000;
+      } else if (sizeCode === "business_quarter") {
+        size_hi = "चौथाई पृष्ठ (3.6 × 4.8 इंच)";
+        price = 1500;
+      } else {
+        size_hi = "व्यवसायिक विज्ञापन";
+        price = 2500;
+      }
+    }
 
     if (publicationId && typeof publicationId === "string" && publicationId.startsWith("CONF-")) {
       const conf = await dbGet("SELECT * FROM admin_configurations WHERE configuration_id = ?", [publicationId]);
@@ -364,7 +381,7 @@ app.post("/api/advertisements/save", async (req: any, res: any) => {
         magazine_hi = pub.magazine_hi;
         edition_hi = pub.edition_hi;
 
-        // Resolve pricing
+        // Resolve pricing from DB pricing master
         const pricing = await dbGet(`
           SELECT price FROM pricings
           WHERE district_id = ? AND sangathan_id = ? AND magazine_id = ? AND edition_id = ?
@@ -406,13 +423,19 @@ app.post("/api/advertisements/save", async (req: any, res: any) => {
     }
 
     const created_at = new Date().toISOString();
+    let targetAdId: number;
+    let finalAdNum = "";
 
+    // Check if adId exists in DB
+    let existingAd: any = null;
     if (adId) {
-      // EDIT MODE: Update existing records, keeping the exact same ad_number
-      const ad = await dbGet("SELECT ad_number FROM advertisements WHERE id = ?", [adId]);
-      if (!ad) {
-        return res.status(404).json({ error: "Advertisement not found" });
-      }
+      existingAd = await dbGet("SELECT id, ad_number FROM advertisements WHERE id = ?", [adId]);
+    }
+
+    if (existingAd) {
+      // EDIT MODE: Update existing advertisements record
+      targetAdId = Number(existingAd.id);
+      finalAdNum = existingAd.ad_number;
 
       await dbRun(`
         UPDATE advertisements SET
@@ -426,73 +449,25 @@ app.post("/api/advertisements/save", async (req: any, res: any) => {
           size_code = ?,
           size_hi = ?
         WHERE id = ?
-      `, [customerName, customerMobile, price, district_hi, sangathan_hi, magazine_hi, edition_hi, sizeCode || (typeCode === "matrimony" ? "matrimony_standard" : "business_size"), size_hi, adId]);
-
-      if (typeCode === "matrimony") {
-        const standardKeys = [
-          "name", "dob", "height", "blood_group", "gotra", "education", "occupation",
-          "father_name", "father_occupation", "mother_name", "mobile1", "mobile2", "whatsapp",
-          "currentAddress", "permanentAddress", "photoUrl", "biodataUrl"
-        ];
-        const extraFields: Record<string, any> = {};
-        for (const k of Object.keys(formData)) {
-          if (!standardKeys.includes(k)) {
-            extraFields[k] = formData[k];
-          }
-        }
-        await dbRun(`
-          UPDATE matrimony_profiles SET
-            name = ?, dob = ?, height = ?, blood_group = ?, gotra = ?, education = ?, occupation = ?,
-            father_name = ?, father_occupation = ?, mother_name = ?, mobile1 = ?, mobile2 = ?, whatsapp = ?,
-            current_address = ?, permanent_address = ?, photo_url = ?, biodata_url = ?, extra_fields_json = ?
-          WHERE ad_id = ?
-        `, [
-          formData.name, formData.dob, formData.height, formData.blood_group, formData.gotra, formData.education, formData.occupation,
-          formData.father_name, formData.father_occupation, formData.mother_name, formData.mobile1, formData.mobile2, formData.whatsapp,
-          formData.currentAddress, formData.permanentAddress, formData.photoUrl, formData.biodataUrl, JSON.stringify(extraFields), adId
-        ]);
-      } else {
-        const standardKeys = [
-          "businessName", "ownerName", "category", "businessDesc", "productsServices", "specialOffer",
-          "keyFeatures", "mobile1", "mobile2", "whatsapp", "email", "businessAddress", "otherAddress",
-          "logoUrl", "photoUrl", "readyAdUrl"
-        ];
-        const extraFields: Record<string, any> = {};
-        for (const k of Object.keys(formData)) {
-          if (!standardKeys.includes(k)) {
-            extraFields[k] = formData[k];
-          }
-        }
-        await dbRun(`
-          UPDATE business_advertisements SET
-            business_name = ?, owner_name = ?, category = ?, business_desc = ?, products_services = ?, special_offer = ?,
-            key_features = ?, mobile1 = ?, mobile2 = ?, whatsapp = ?, email = ?, business_address = ?, other_address = ?,
-            logo_url = ?, photo_url = ?, ready_ad_url = ?, extra_fields_json = ?
-          WHERE ad_id = ?
-        `, [
-          formData.businessName, formData.ownerName, formData.category, formData.businessDesc, formData.productsServices, formData.specialOffer,
-          formData.keyFeatures, formData.mobile1, formData.mobile2, formData.whatsapp, formData.email, formData.businessAddress, formData.otherAddress,
-          formData.logoUrl, formData.photoUrl, formData.readyAdUrl, JSON.stringify(extraFields), adId
-        ]);
-      }
-
-      res.json({
-        id: Number(adId),
-        adNumber: ad.ad_number,
-        price,
-        success: true
-      });
+      `, [effectiveCustomerName, effectiveCustomerMobile, price, district_hi, sangathan_hi, magazine_hi, edition_hi, sizeCode || (typeCode === "matrimony" ? "matrimony_standard" : "business_size"), size_hi, targetAdId]);
     } else {
       // CREATE MODE: Generate a unique, persistent, immutable ad_number immediately on save!
-      let finalAdNum = "";
       if (typeCode === "matrimony") {
-        const countRow = await dbGet("SELECT COUNT(*) as count FROM advertisements WHERE type_code = 'matrimony'");
-        const seqNum = String((countRow?.count || 0) + 1).padStart(3, "0");
-        finalAdNum = seqNum;
+        const maxRow = await dbGet<{ maxNum: number }>("SELECT MAX(CAST(ad_number AS INTEGER)) as maxNum FROM advertisements WHERE type_code = 'matrimony' AND ad_number GLOB '[0-9]*'");
+        let nextSeq = (maxRow?.maxNum || 0) + 1;
+        finalAdNum = String(nextSeq).padStart(3, "0");
+        while (await dbGet("SELECT id FROM advertisements WHERE ad_number = ?", [finalAdNum])) {
+          nextSeq++;
+          finalAdNum = String(nextSeq).padStart(3, "0");
+        }
       } else {
-        const countRow = await dbGet("SELECT COUNT(*) as count FROM advertisements WHERE type_code = 'business'");
-        const seqNum = String((countRow?.count || 0) + 1).padStart(3, "0");
-        finalAdNum = `BUS-${seqNum} / ${magazine_hi}`;
+        const countRow = await dbGet<{ count: number }>("SELECT COUNT(*) as count FROM advertisements WHERE type_code = 'business'");
+        let nextSeq = (countRow?.count || 0) + 1;
+        finalAdNum = `BUS-${String(nextSeq).padStart(3, "0")} / ${magazine_hi}`;
+        while (await dbGet("SELECT id FROM advertisements WHERE ad_number = ?", [finalAdNum])) {
+          nextSeq++;
+          finalAdNum = `BUS-${String(nextSeq).padStart(3, "0")} / ${magazine_hi}`;
+        }
       }
 
       const adResult = await dbRun(`
@@ -500,65 +475,79 @@ app.post("/api/advertisements/save", async (req: any, res: any) => {
           ad_number, type_code, district_hi, sangathan_hi, magazine_hi, edition_hi, size_code, size_hi,
           customer_name, customer_mobile1, price, payment_status, created_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)
-      `, [finalAdNum, typeCode, district_hi, sangathan_hi, magazine_hi, edition_hi, sizeCode || (typeCode === "matrimony" ? "matrimony_standard" : "business_size"), size_hi, customerName, customerMobile, price, created_at]);
+      `, [finalAdNum, typeCode, district_hi, sangathan_hi, magazine_hi, edition_hi, sizeCode || (typeCode === "matrimony" ? "matrimony_standard" : "business_size"), size_hi, effectiveCustomerName, effectiveCustomerMobile, price, created_at]);
 
-      const newAdId = adResult.lastID;
+      targetAdId = adResult.lastID;
+      if (!targetAdId) {
+        const maxAd = await dbGet<{ maxId: number }>("SELECT MAX(id) as maxId FROM advertisements");
+        targetAdId = maxAd?.maxId || 1;
+      }
+    }
 
-      if (typeCode === "matrimony") {
-        const standardKeys = [
-          "name", "dob", "height", "blood_group", "gotra", "education", "occupation",
-          "father_name", "father_occupation", "mother_name", "mobile1", "mobile2", "whatsapp",
-          "currentAddress", "permanentAddress", "photoUrl", "biodataUrl"
-        ];
-        const extraFields: Record<string, any> = {};
-        for (const k of Object.keys(formData)) {
-          if (!standardKeys.includes(k)) {
-            extraFields[k] = formData[k];
-          }
+    if (typeCode === "matrimony") {
+      const standardKeys = [
+        "name", "dob", "height", "blood_group", "gotra", "education", "occupation",
+        "father_name", "father_occupation", "mother_name", "mobile1", "mobile2", "whatsapp",
+        "currentAddress", "permanentAddress", "photoUrl", "biodataUrl"
+      ];
+      const extraFields: Record<string, any> = {};
+      for (const k of Object.keys(formData)) {
+        if (!standardKeys.includes(k)) {
+          extraFields[k] = formData[k];
         }
-        await dbRun(`
-          INSERT INTO matrimony_profiles (
-            ad_id, name, dob, height, blood_group, gotra, education, occupation,
-            father_name, father_occupation, mother_name, mobile1, mobile2, whatsapp,
-            current_address, permanent_address, photo_url, biodata_url, extra_fields_json
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `, [
-          newAdId, formData.name, formData.dob, formData.height, formData.blood_group, formData.gotra, formData.education, formData.occupation,
-          formData.father_name, formData.father_occupation, formData.mother_name, formData.mobile1, formData.mobile2, formData.whatsapp,
-          formData.currentAddress, formData.permanentAddress, formData.photoUrl, formData.biodataUrl, JSON.stringify(extraFields)
-        ]);
-      } else {
-        const standardKeys = [
-          "businessName", "ownerName", "category", "businessDesc", "productsServices", "specialOffer",
-          "keyFeatures", "mobile1", "mobile2", "whatsapp", "email", "businessAddress", "otherAddress",
-          "logoUrl", "photoUrl", "readyAdUrl"
-        ];
-        const extraFields: Record<string, any> = {};
-        for (const k of Object.keys(formData)) {
-          if (!standardKeys.includes(k)) {
-            extraFields[k] = formData[k];
-          }
-        }
-        await dbRun(`
-          INSERT INTO business_advertisements (
-            ad_id, business_name, owner_name, category, business_desc, products_services, special_offer,
-            key_features, mobile1, mobile2, whatsapp, email, business_address, other_address,
-            logo_url, photo_url, ready_ad_url, extra_fields_json
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `, [
-          newAdId, formData.businessName, formData.ownerName, formData.category, formData.businessDesc, formData.productsServices, formData.specialOffer,
-          formData.keyFeatures, formData.mobile1, formData.mobile2, formData.whatsapp, formData.email, formData.businessAddress, formData.otherAddress,
-          formData.logoUrl, formData.photoUrl, formData.readyAdUrl, JSON.stringify(extraFields)
-        ]);
       }
 
-      res.json({
-        id: newAdId,
-        adNumber: finalAdNum,
-        price,
-        success: true
-      });
+      // Safe clean up in case of any duplicate/orphan before inserting
+      await dbRun("DELETE FROM matrimony_profiles WHERE ad_id = ?", [targetAdId]);
+
+      await dbRun(`
+        INSERT INTO matrimony_profiles (
+          ad_id, name, dob, height, blood_group, gotra, education, occupation,
+          father_name, father_occupation, mother_name, mobile1, mobile2, whatsapp,
+          current_address, permanent_address, photo_url, biodata_url, extra_fields_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        targetAdId, formData.name || "", formData.dob || "", formData.height || "", formData.blood_group || "", formData.gotra || "", formData.education || "", formData.occupation || "",
+        formData.father_name || "", formData.father_occupation || "", formData.mother_name || "", formData.mobile1 || "", formData.mobile2 || "", formData.whatsapp || "",
+        formData.currentAddress || "", formData.permanentAddress || "", formData.photoUrl || "", formData.biodataUrl || "", JSON.stringify(extraFields)
+      ]);
+    } else {
+      const standardKeys = [
+        "businessName", "ownerName", "category", "businessDesc", "productsServices", "specialOffer",
+        "keyFeatures", "mobile1", "mobile2", "whatsapp", "email", "businessAddress", "otherAddress",
+        "logoUrl", "photoUrl", "readyAdUrl", "designLink"
+      ];
+      const extraFields: Record<string, any> = {};
+      for (const k of Object.keys(formData)) {
+        if (!standardKeys.includes(k)) {
+          extraFields[k] = formData[k];
+        }
+      }
+
+      const readyUrl = formData.readyAdUrl || formData.designLink || "";
+
+      // Safe clean up in case of any duplicate/orphan before inserting
+      await dbRun("DELETE FROM business_advertisements WHERE ad_id = ?", [targetAdId]);
+
+      await dbRun(`
+        INSERT INTO business_advertisements (
+          ad_id, business_name, owner_name, category, business_desc, products_services, special_offer,
+          key_features, mobile1, mobile2, whatsapp, email, business_address, other_address,
+          logo_url, photo_url, ready_ad_url, extra_fields_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        targetAdId, formData.businessName || "व्यवसाय विज्ञापन", formData.ownerName || effectiveCustomerName, formData.category || "", formData.businessDesc || "", formData.productsServices || "", formData.specialOffer || "",
+        formData.keyFeatures || "", formData.mobile1 || effectiveCustomerMobile, formData.mobile2 || "", formData.whatsapp || "", formData.email || "", formData.businessAddress || "", formData.otherAddress || "",
+        formData.logoUrl || "", formData.photoUrl || "", readyUrl, JSON.stringify(extraFields)
+      ]);
     }
+
+    res.json({
+      id: targetAdId,
+      adNumber: finalAdNum,
+      price,
+      success: true
+    });
 
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -604,21 +593,7 @@ app.post("/api/upload", (req: any, res: any, next: any) => {
   }
 });
 
-// 4. AI-assisted Ad Maker layout generator endpoint
-app.post("/api/ad-maker/generate", async (req: any, res: any) => {
-  const { prompt, businessInfo, currentLayout, dimensions } = req.body;
-  if (!prompt) {
-    return res.status(400).json({ error: "Missing prompt or details" });
-  }
-  try {
-    const result = await generateAdLayout(prompt, businessInfo || {}, currentLayout, dimensions);
-    res.json(result);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// 4.1 Direct Dispatch & Email Notification Endpoint for ipgroup2002@gmail.com
+// 4. Direct Dispatch & Email Notification Endpoint for ipgroup2002@gmail.com
 app.post("/api/dispatch-email", async (req: any, res: any) => {
   const { recipientEmail, subject, adNumber, customerName, customerMobile, adType, dimensions, fileUrl, designData, fullDetails } = req.body;
   const targetEmail = recipientEmail || "ipgroup2002@gmail.com";

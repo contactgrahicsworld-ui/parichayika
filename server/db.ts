@@ -43,7 +43,6 @@ export async function dbRun(sql: string, params: any[] = []): Promise<{ lastID: 
     }
     stmt.step();
     stmt.free();
-    saveDb();
 
     let lastID = 0;
     let changes = 0;
@@ -54,6 +53,8 @@ export async function dbRun(sql: string, params: any[] = []): Promise<{ lastID: 
         changes = Number(res[0].values[0][1]) || 0;
       }
     } catch {}
+
+    saveDb();
     return { lastID, changes };
   } catch (err: any) {
     if (err?.message?.includes("malformed") || err?.message?.includes("corrupt")) {
@@ -179,6 +180,8 @@ async function doInitDatabase() {
 }
 
 function setupTablesAndSeeds(targetDb: any) {
+  targetDb.exec(`PRAGMA foreign_keys = ON;`);
+
   // 1. Super Admins
   targetDb.exec(`
     CREATE TABLE IF NOT EXISTS super_admins (
@@ -303,8 +306,8 @@ function setupTablesAndSeeds(targetDb: any) {
     CREATE TABLE IF NOT EXISTS business_advertisements (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       ad_id INTEGER UNIQUE NOT NULL,
-      business_name TEXT NOT NULL,
-      owner_name TEXT NOT NULL,
+      business_name TEXT DEFAULT '',
+      owner_name TEXT DEFAULT '',
       category TEXT,
       business_desc TEXT,
       products_services TEXT,
@@ -521,9 +524,9 @@ async function seedData() {
     if (!sizesCheck || sizesCheck.count === 0) {
       const sizes = [
         ["matrimony_standard", "Matrimony Standard", "विवाह मानक (3.5 × 2 इंच)", 3.5, 2, "inch", 1, 1],
-        ["business_full", "Full Page", "पूरा पृष्ठ (8.5 × 11 इंच)", 8.5, 11, "inch", 1, 1],
-        ["business_half", "Half Page", "आधा पृष्ठ (8.5 × 5.5 इंच)", 8.5, 5.5, "inch", 1, 1],
-        ["business_quarter", "Quarter Page", "चौथाई पृष्ठ (4.25 × 5.5 इंच)", 4.25, 5.5, "inch", 1, 1],
+        ["business_full", "Full Page", "पूरा पृष्ठ (7.2 × 9.6 इंच)", 7.2, 9.6, "inch", 1, 1],
+        ["business_half", "Half Page", "आधा पृष्ठ (7.2 × 4.8 इंच)", 7.2, 4.8, "inch", 1, 1],
+        ["business_quarter", "Quarter Page", "चौथाई पृष्ठ (3.6 × 4.8 इंच)", 3.6, 4.8, "inch", 1, 1],
         ["business_custom", "Custom Size", "कस्टम आकार", 0, 0, "inch", 1, 1]
       ];
       for (const [code, en, hi, w, h, u, r, c] of sizes) {
@@ -531,6 +534,11 @@ async function seedData() {
       }
       console.log("Seeded Advertisement Sizes");
     }
+
+    // Dynamic sync for updated business dimensions and Hindi labels
+    await dbRun("UPDATE advertisement_sizes SET width = 7.2, height = 9.6, name_hi = 'पूरा पृष्ठ (7.2 × 9.6 इंच)' WHERE code = 'business_full'");
+    await dbRun("UPDATE advertisement_sizes SET width = 7.2, height = 4.8, name_hi = 'आधा पृष्ठ (7.2 × 4.8 इंच)' WHERE code = 'business_half'");
+    await dbRun("UPDATE advertisement_sizes SET width = 3.6, height = 4.8, name_hi = 'चौथाई पृष्ठ (3.6 × 4.8 इंच)' WHERE code = 'business_quarter'");
 
     // 8. Seed Default Pricings for combinations (Raipur -> Raipur Sahu Sangathan -> Parichayika -> Edition 2026)
     const pricingsCheck = await dbGet("SELECT COUNT(*) as count FROM pricings");
